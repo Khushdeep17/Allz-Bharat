@@ -37,8 +37,6 @@ Inside `customer_app/`:
 - `lib/features/` — Feature modules (Splash, Onboarding, Home) with presentation and feature-specific models/widgets.
 - `lib/shared/` — Reusable shared UI widgets across features.
 
-> **Note**: `lib/models/` and `lib/shared/widgets/` contain legacy/duplicate files pending cleanup.
-
 ## How to Run
 
 ```bash
