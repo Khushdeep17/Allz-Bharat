@@ -31,8 +31,34 @@
 
   <title>customer_app</title>
   <link rel="manifest" href="manifest.json">
+
+  <style>
+    #recaptcha-container {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      z-index: 9999999;
+      display: none;
+    }
+  </style>
+  <script>
+    window.showRecaptchaContainer = function() {
+      var el = document.getElementById('recaptcha-container');
+      if (el) el.style.display = 'block';
+    };
+    window.hideRecaptchaContainer = function() {
+      var el = document.getElementById('recaptcha-container');
+      if (el) {
+        el.style.display = 'none';
+        el.innerHTML = '';
+      }
+    };
+  </script>
 </head>
 <body>
+  <!-- Container for Firebase Auth invisible / visible reCAPTCHA on Web -->
+  <div id="recaptcha-container"></div>
+
   <!--
     You can customize the "flutter_bootstrap.js" script.
     This is useful to provide a custom configuration to the Flutter loader

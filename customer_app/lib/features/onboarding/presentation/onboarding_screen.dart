@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_sizes.dart';
@@ -46,7 +47,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   ];
 
   void _finishOnboarding() {
-    Navigator.of(context).pushReplacementNamed(AppRoutes.home);
+    context.go(AppRoutes.login);
   }
 
   void _nextPage() {

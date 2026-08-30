@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_constants.dart';
@@ -26,7 +27,7 @@ class _SplashScreenState extends State<SplashScreen> {
 
   void _navigateToNext() {
     if (!mounted) return;
-    Navigator.of(context).pushReplacementNamed(AppRoutes.onboarding);
+    context.go(AppRoutes.onboarding);
   }
 
   @override

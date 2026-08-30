@@ -1,0 +1,2 @@
+void showRecaptcha() {}
+void hideRecaptcha() {}

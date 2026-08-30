@@ -1,21 +1,10 @@
-import 'package:flutter/material.dart';
-
-import '../../features/home/presentation/home_screen.dart';
-import '../../features/onboarding/presentation/onboarding_screen.dart';
-import '../../features/splash/presentation/splash_screen.dart';
-
+/// Named route constants for GoRouter.
 class AppRoutes {
   AppRoutes._();
 
   static const String splash = '/';
   static const String onboarding = '/onboarding';
+  static const String login = '/login';
+  static const String otp = '/otp';
   static const String home = '/home';
-
-  static Map<String, WidgetBuilder> get routes {
-    return {
-      splash: (context) => const SplashScreen(),
-      onboarding: (context) => const OnboardingScreen(),
-      home: (context) => const HomeScreen(),
-    };
-  }
 }
