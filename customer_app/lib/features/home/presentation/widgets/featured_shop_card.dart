@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/constants/app_sizes.dart';
-import '../../models/shop.dart';
+import '../../../shops/models/shop.dart';
 
 class FeaturedShopCard extends StatelessWidget {
   final Shop shop;
@@ -45,7 +45,7 @@ class FeaturedShopCard extends StatelessWidget {
                         borderRadius: AppRadius.borderSm,
                       ),
                       child: Text(
-                        shop.tag,
+                        shop.isOpen ? 'Verified Kirana' : 'Closed',
                         style: theme.textTheme.labelSmall?.copyWith(
                           color: AppColors.onSecondary,
                           fontWeight: FontWeight.bold,
@@ -65,7 +65,9 @@ class FeaturedShopCard extends StatelessWidget {
                       ),
                       const SizedBox(width: 2),
                       Text(
-                        shop.rating.toString(),
+                        shop.rating > 0
+                            ? shop.rating.toStringAsFixed(1)
+                            : '4.5',
                         style: theme.textTheme.labelSmall?.copyWith(
                           fontWeight: FontWeight.bold,
                           color: AppColors.onSecondaryContainer,
@@ -89,9 +91,11 @@ class FeaturedShopCard extends StatelessWidget {
               ),
               const SizedBox(height: 2),
 
-              // Badge Offer / Description
+              // Address / Locality
               Text(
-                shop.badgeText,
+                shop.address.isNotEmpty
+                    ? shop.address
+                    : 'Shastri Nagar, Meerut',
                 style: theme.textTheme.bodySmall?.copyWith(
                   color: AppColors.secondary,
                   fontWeight: FontWeight.w600,
@@ -101,7 +105,7 @@ class FeaturedShopCard extends StatelessWidget {
               ),
               const SizedBox(height: AppSpacing.sm),
 
-              // Bottom Row with locality & ETA
+              // Bottom Row with status & action
               Row(
                 children: [
                   const Icon(
@@ -111,7 +115,7 @@ class FeaturedShopCard extends StatelessWidget {
                   ),
                   const SizedBox(width: 2),
                   Text(
-                    '${shop.deliveryTime} • ${shop.distance}',
+                    shop.isOpen ? 'Express Delivery' : 'Closed for now',
                     style: theme.textTheme.labelSmall?.copyWith(
                       color: AppColors.onSecondaryContainer,
                     ),

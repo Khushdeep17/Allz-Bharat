@@ -2,13 +2,16 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../data/auth_repository.dart';
+import '../../data/user_repository.dart';
 import 'auth_state.dart';
 
 /// Riverpod StateNotifier for managing auth operations and UI state.
 class AuthController extends StateNotifier<AuthState> {
   final AuthRepository _authRepository;
+  final UserRepository _userRepository;
 
-  AuthController(this._authRepository) : super(const AuthState());
+  AuthController(this._authRepository, this._userRepository)
+      : super(const AuthState());
 
   /// Triggers sending an OTP to the given 10-digit Indian phone number.
   Future<void> sendOtp(String rawPhone) async {
@@ -144,6 +147,52 @@ class AuthController extends StateNotifier<AuthState> {
     }
   }
 
+  /// Creates and saves a new user profile in Firestore for first-time users.
+  Future<bool> saveUserProfile(String name) async {
+    final user = _authRepository.currentUser;
+    if (user == null) {
+      state = state.copyWith(
+        status: AuthStatus.error,
+        errorMessage: 'User session not found. Please log in again.',
+      );
+      return false;
+    }
+
+    final trimmedName = name.trim();
+    if (trimmedName.isEmpty) {
+      state = state.copyWith(
+        status: AuthStatus.error,
+        errorMessage: 'Please enter your name.',
+      );
+      return false;
+    }
+
+    state = state.copyWith(
+      status: AuthStatus.settingUpProfile,
+      errorMessage: null,
+    );
+
+    try {
+      await _userRepository.createUserProfile(
+        uid: user.uid,
+        phoneNumber: user.phoneNumber ?? state.phoneNumber ?? '',
+        name: trimmedName,
+      );
+
+      state = state.copyWith(
+        status: AuthStatus.authenticated,
+        errorMessage: null,
+      );
+      return true;
+    } catch (e) {
+      state = state.copyWith(
+        status: AuthStatus.error,
+        errorMessage: 'Failed to create profile: $e',
+      );
+      return false;
+    }
+  }
+
   /// Signs the user out.
   Future<void> signOut() async {
     await _authRepository.signOut();
@@ -188,5 +237,6 @@ class AuthController extends StateNotifier<AuthState> {
 final authControllerProvider =
     StateNotifierProvider<AuthController, AuthState>((ref) {
   final authRepo = ref.watch(authRepositoryProvider);
-  return AuthController(authRepo);
+  final userRepo = ref.watch(userRepositoryProvider);
+  return AuthController(authRepo, userRepo);
 });

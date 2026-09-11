@@ -27,14 +27,25 @@ class AppUser {
   }
 
   factory AppUser.fromMap(Map<String, dynamic> map) {
+    DateTime? parsedCreatedAt;
+    final rawCreatedAt = map['createdAt'];
+    if (rawCreatedAt is String) {
+      parsedCreatedAt = DateTime.tryParse(rawCreatedAt);
+    } else if (rawCreatedAt != null) {
+      // Handles Firestore Timestamp if present without hard dependency on Timestamp type in model
+      try {
+        parsedCreatedAt = (rawCreatedAt as dynamic).toDate() as DateTime?;
+      } catch (_) {
+        parsedCreatedAt = null;
+      }
+    }
+
     return AppUser(
-      uid: map['uid'] as String,
+      uid: (map['uid'] ?? '') as String,
       phoneNumber: map['phoneNumber'] as String?,
-      displayName: map['displayName'] as String?,
+      displayName: (map['displayName'] ?? map['name']) as String?,
       email: map['email'] as String?,
-      createdAt: map['createdAt'] != null
-          ? DateTime.tryParse(map['createdAt'] as String)
-          : null,
+      createdAt: parsedCreatedAt,
     );
   }
 
@@ -42,8 +53,9 @@ class AppUser {
     return {
       'uid': uid,
       'phoneNumber': phoneNumber,
+      'name': displayName,
       'displayName': displayName,
-      'email': email,
+      if (email != null) 'email': email,
       'createdAt': createdAt?.toIso8601String(),
     };
   }

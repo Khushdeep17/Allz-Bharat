@@ -2,13 +2,29 @@ import 'package:flutter/material.dart';
 
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/constants/app_sizes.dart';
-import '../../models/category.dart';
+import '../../../categories/models/category.dart';
 
 class CategoryChip extends StatelessWidget {
   final Category category;
   final VoidCallback? onTap;
 
   const CategoryChip({super.key, required this.category, this.onTap});
+
+  Widget _buildIcon() {
+    final iconStr = category.icon.trim();
+    if (iconStr.isNotEmpty) {
+      return Text(
+        iconStr,
+        style: const TextStyle(fontSize: 24),
+        textAlign: TextAlign.center,
+      );
+    }
+    return const Icon(
+      Icons.category_rounded,
+      color: AppColors.primary,
+      size: AppComponentSizes.iconMd,
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -28,10 +44,8 @@ class CategoryChip extends StatelessWidget {
               borderRadius: AppRadius.borderLg,
               border: Border.all(color: AppColors.border, width: 1),
             ),
-            child: Icon(
-              category.icon,
-              color: AppColors.primary,
-              size: AppComponentSizes.iconMd,
+            child: Center(
+              child: _buildIcon(),
             ),
           ),
           const SizedBox(height: AppSpacing.xs),

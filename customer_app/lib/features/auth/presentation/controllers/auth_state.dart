@@ -3,6 +3,7 @@ enum AuthStatus {
   sendingOtp,
   codeSent,
   verifyingOtp,
+  settingUpProfile,
   authenticated,
   error,
 }
@@ -24,7 +25,9 @@ class AuthState {
   });
 
   bool get isLoading =>
-      status == AuthStatus.sendingOtp || status == AuthStatus.verifyingOtp;
+      status == AuthStatus.sendingOtp ||
+      status == AuthStatus.verifyingOtp ||
+      status == AuthStatus.settingUpProfile;
 
   bool get isCodeSent => status == AuthStatus.codeSent;
   bool get isAuthenticated => status == AuthStatus.authenticated;

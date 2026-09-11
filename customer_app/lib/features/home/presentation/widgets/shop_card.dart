@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/constants/app_sizes.dart';
-import '../../models/shop.dart';
+import '../../../shops/models/shop.dart';
 
 class ShopCard extends StatelessWidget {
   final Shop shop;
@@ -79,7 +79,9 @@ class ShopCard extends StatelessWidget {
 
               // Locality Address
               Text(
-                shop.locality,
+                shop.address.isNotEmpty
+                    ? shop.address
+                    : 'Shastri Nagar, Meerut',
                 style: theme.textTheme.bodySmall?.copyWith(
                   color: AppColors.textSecondary,
                 ),
@@ -88,7 +90,7 @@ class ShopCard extends StatelessWidget {
               ),
               const SizedBox(height: AppSpacing.sm),
 
-              // Rating, Distance & Delivery Time Row
+              // Rating & Status Row
               Row(
                 children: [
                   Container(
@@ -101,6 +103,7 @@ class ShopCard extends StatelessWidget {
                       borderRadius: AppRadius.borderSm,
                     ),
                     child: Row(
+                      mainAxisSize: MainAxisSize.min,
                       children: [
                         const Icon(
                           Icons.star_rounded,
@@ -109,7 +112,9 @@ class ShopCard extends StatelessWidget {
                         ),
                         const SizedBox(width: 2),
                         Text(
-                          shop.rating.toString(),
+                          shop.rating > 0
+                              ? shop.rating.toStringAsFixed(1)
+                              : '4.5',
                           style: theme.textTheme.labelSmall?.copyWith(
                             color: AppColors.onSecondaryContainer,
                             fontWeight: FontWeight.bold,
@@ -121,7 +126,7 @@ class ShopCard extends StatelessWidget {
                   const SizedBox(width: AppSpacing.xs),
                   Expanded(
                     child: Text(
-                      '• ${shop.distance}',
+                      shop.isOpen ? '• Open' : '• Closed',
                       style: theme.textTheme.bodySmall,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
@@ -134,7 +139,7 @@ class ShopCard extends StatelessWidget {
                   ),
                   const SizedBox(width: 2),
                   Text(
-                    shop.deliveryTime,
+                    '15m',
                     style: theme.textTheme.labelSmall?.copyWith(
                       color: AppColors.textSecondary,
                       fontSize: 11.0,

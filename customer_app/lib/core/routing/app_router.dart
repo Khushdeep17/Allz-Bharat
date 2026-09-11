@@ -3,8 +3,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../features/auth/data/auth_repository.dart';
+import '../../features/auth/data/user_repository.dart';
 import '../../features/auth/presentation/screens/otp_verification_screen.dart';
 import '../../features/auth/presentation/screens/phone_login_screen.dart';
+import '../../features/auth/presentation/screens/profile_setup_screen.dart';
 import '../../features/home/presentation/home_screen.dart';
 import '../../features/onboarding/presentation/onboarding_screen.dart';
 import '../../features/splash/presentation/splash_screen.dart';
@@ -16,6 +18,9 @@ class GoRouterRefreshNotifier extends ChangeNotifier {
     ref.listen(authStateChangesProvider, (_, _) {
       notifyListeners();
     });
+    ref.listen(currentUserProfileProvider, (_, _) {
+      notifyListeners();
+    });
   }
 }
 
@@ -25,12 +30,14 @@ final routerRefreshProvider = Provider<GoRouterRefreshNotifier>((ref) {
 
 final routerProvider = Provider<GoRouter>((ref) {
   final refreshNotifier = ref.watch(routerRefreshProvider);
-  final authRepo = ref.watch(authRepositoryProvider);
 
   return GoRouter(
     initialLocation: AppRoutes.splash,
     refreshListenable: refreshNotifier,
     redirect: (context, state) {
+      final authRepo = ref.read(authRepositoryProvider);
+      final profileAsync = ref.read(currentUserProfileProvider);
+
       final user = authRepo.currentUser;
       final isLoggedIn = user != null;
       final location = state.matchedLocation;
@@ -39,20 +46,42 @@ final routerProvider = Provider<GoRouter>((ref) {
       final isOnboarding = location == AppRoutes.onboarding;
       final isAuthFlow =
           location == AppRoutes.login || location == AppRoutes.otp;
+      final isProfileSetup = location == AppRoutes.profileSetup;
 
       // Allow splash & onboarding to display without forced redirection
       if (isSplash || isOnboarding) {
         return null;
       }
 
-      // If user is already logged in and navigates to login/otp, send to home
-      if (isLoggedIn && isAuthFlow) {
-        return AppRoutes.home;
+      // If user is unauthenticated
+      if (!isLoggedIn) {
+        if (isAuthFlow) {
+          return null;
+        }
+        return AppRoutes.login;
       }
 
-      // If user is unauthenticated and tries to access protected pages (home, etc.)
-      if (!isLoggedIn && !isAuthFlow) {
-        return AppRoutes.login;
+      // User is authenticated (isLoggedIn == true)
+      // Check if profile exists in Firestore
+      final hasProfile = profileAsync.valueOrNull != null;
+      final isProfileLoaded = profileAsync.hasValue || profileAsync.hasError;
+
+      // If profile state is still initializing, allow current step
+      if (!isProfileLoaded) {
+        return null;
+      }
+
+      // First-time user without a Firestore profile record
+      if (!hasProfile) {
+        if (isProfileSetup) {
+          return null;
+        }
+        return AppRoutes.profileSetup;
+      }
+
+      // Returning user with an existing Firestore profile record
+      if (isAuthFlow || isProfileSetup) {
+        return AppRoutes.home;
       }
 
       return null;
@@ -73,6 +102,10 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: AppRoutes.otp,
         builder: (context, state) => const OtpVerificationScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.profileSetup,
+        builder: (context, state) => const ProfileSetupScreen(),
       ),
       GoRoute(
         path: AppRoutes.home,

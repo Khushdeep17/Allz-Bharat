@@ -1,0 +1,16 @@
+{
+  "name": "allz-bharat-commerce-seeder",
+  "version": "1.0.0",
+  "description": "One-time local development seed tool for Allz Bharat Firestore commerce data",
+  "main": "seed.js",
+  "scripts": {
+    "seed": "node seed.js"
+  },
+  "dependencies": {
+    "firebase-admin": "^13.2.0"
+  },
+  "private": true,
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

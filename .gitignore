@@ -72,3 +72,18 @@ app.*.map.json
 **/google-services.json
 **/GoogleService-Info.plist
 **/firebase_app_id_file.json
+**/*service-account*.json
+**/*serviceAccount*.json
+**/*serviceAccountKey*.json
+**/*adminsdk*.json
+**/*.pem
+**/*.key
+.env
+.env.*
+**/.env
+**/.env.*
+
+# Local Dev Tooling & Node.js
+**/node_modules/
+package-lock.json
+**/package-lock.json
