@@ -8,4 +8,6 @@ class AppRoutes {
   static const String otp = '/otp';
   static const String profileSetup = '/profile-setup';
   static const String home = '/home';
+  static const String shopDetailsPattern = '/shop/:shopId';
+  static String shopDetails(String shopId) => '/shop/$shopId';
 }

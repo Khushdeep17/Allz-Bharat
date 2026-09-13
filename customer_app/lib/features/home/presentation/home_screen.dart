@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_sizes.dart';
+import '../../../core/routing/app_routes.dart';
 import '../../auth/presentation/controllers/auth_controller.dart';
 import '../../categories/data/category_repository.dart';
 import '../../shops/data/shop_repository.dart';
@@ -160,7 +162,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                               const SizedBox(width: AppSpacing.md),
                           itemBuilder: (context, index) {
                             final shop = shops[index];
-                            return FeaturedShopCard(shop: shop);
+                            return FeaturedShopCard(
+                              shop: shop,
+                              onTap: () =>
+                                  context.push(AppRoutes.shopDetails(shop.id)),
+                            );
                           },
                         ),
                       ),
@@ -184,7 +190,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                               const SizedBox(width: AppSpacing.md),
                           itemBuilder: (context, index) {
                             final shop = shops[index];
-                            return ShopCard(shop: shop);
+                            return ShopCard(
+                              shop: shop,
+                              onTap: () =>
+                                  context.push(AppRoutes.shopDetails(shop.id)),
+                            );
                           },
                         ),
                       ),

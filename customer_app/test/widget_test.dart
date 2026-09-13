@@ -9,14 +9,24 @@ import 'package:customer_app/features/auth/presentation/screens/profile_setup_sc
 import 'package:customer_app/features/categories/data/category_repository.dart';
 import 'package:customer_app/features/categories/models/category.dart';
 import 'package:customer_app/features/home/presentation/home_screen.dart';
+import 'package:customer_app/features/products/data/product_repository.dart';
+import 'package:customer_app/features/products/models/product.dart';
 import 'package:customer_app/features/shops/data/shop_repository.dart';
 import 'package:customer_app/features/shops/models/shop.dart';
+import 'package:customer_app/features/shops/presentation/screens/shop_details_screen.dart';
 import 'package:customer_app/features/splash/presentation/splash_screen.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
+
+class FakeUser extends Fake implements User {
+  @override
+  final String uid;
+
+  FakeUser({this.uid = 'test-uid'});
+}
 
 class FakeAuthRepository implements AuthRepository {
   final User? _user;
@@ -184,6 +194,88 @@ class FakeCategoryRepository implements CategoryRepository {
   }
 }
 
+class FakeProductRepository implements ProductRepository {
+  final List<Product> _products;
+  final bool _throwError;
+
+  FakeProductRepository([
+    this._products = const [],
+    this._throwError = false,
+  ]);
+
+  @override
+  Future<List<Product>> getProductsByShop(
+    String shopId, {
+    bool activeOnly = true,
+  }) async {
+    if (_throwError) throw Exception('Firestore error');
+    var list = _products.where((p) => p.shopId == shopId);
+    if (activeOnly) {
+      list = list.where((p) => p.isActive);
+    }
+    return list.toList();
+  }
+
+  @override
+  Future<List<Product>> getProductsByCategory(
+    String categoryId, {
+    bool activeOnly = true,
+  }) async {
+    if (_throwError) throw Exception('Firestore error');
+    var list = _products.where((p) => p.categoryId == categoryId);
+    if (activeOnly) {
+      list = list.where((p) => p.isActive);
+    }
+    return list.toList();
+  }
+
+  @override
+  Future<Product?> getProductById(String id) async {
+    if (_throwError) throw Exception('Firestore error');
+    try {
+      return _products.firstWhere((p) => p.id == id);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  @override
+  Stream<List<Product>> watchProductsByShop(
+    String shopId, {
+    bool activeOnly = true,
+  }) {
+    if (_throwError) return Stream.error(Exception('Firestore error'));
+    var list = _products.where((p) => p.shopId == shopId);
+    if (activeOnly) {
+      list = list.where((p) => p.isActive);
+    }
+    return Stream.value(list.toList());
+  }
+
+  @override
+  Stream<List<Product>> watchProductsByCategory(
+    String categoryId, {
+    bool activeOnly = true,
+  }) {
+    if (_throwError) return Stream.error(Exception('Firestore error'));
+    var list = _products.where((p) => p.categoryId == categoryId);
+    if (activeOnly) {
+      list = list.where((p) => p.isActive);
+    }
+    return Stream.value(list.toList());
+  }
+
+  @override
+  Stream<Product?> watchProductById(String id) {
+    if (_throwError) return Stream.error(Exception('Firestore error'));
+    try {
+      return Stream.value(_products.firstWhere((p) => p.id == id));
+    } catch (_) {
+      return Stream.value(null);
+    }
+  }
+}
+
 final testShops = [
   const Shop(
     id: 'shop_001',
@@ -214,6 +306,39 @@ final testCategories = [
     id: 'cat_dairy',
     name: 'Dairy',
     icon: '🥛',
+    isActive: true,
+  ),
+];
+
+final testProducts = [
+  const Product(
+    id: 'prod_001',
+    shopId: 'shop_001',
+    categoryId: 'cat_dairy',
+    name: 'Amul Taaza Milk 500ml',
+    description: 'Fresh Amul Taaza milk 500ml pack',
+    price: 28.0,
+    inStock: true,
+    isActive: true,
+  ),
+  const Product(
+    id: 'prod_005',
+    shopId: 'shop_001',
+    categoryId: 'cat_snacks',
+    name: 'Maggi Noodles 70g',
+    description: 'Maggi instant noodles 70g pack',
+    price: 14.0,
+    inStock: false,
+    isActive: true,
+  ),
+  const Product(
+    id: 'prod_006',
+    shopId: 'shop_002',
+    categoryId: 'cat_dairy',
+    name: 'Amul Gold Milk 500ml',
+    description: 'Amul Gold milk 500ml pack',
+    price: 32.0,
+    inStock: true,
     isActive: true,
   ),
 ];
@@ -349,6 +474,8 @@ void main() {
               .overrideWithValue(FakeShopRepository(testShops)),
           categoryRepositoryProvider
               .overrideWithValue(FakeCategoryRepository(testCategories)),
+          productRepositoryProvider
+              .overrideWithValue(FakeProductRepository(testProducts)),
         ],
         child: const MaterialApp(
           home: HomeScreen(),
@@ -423,6 +550,123 @@ void main() {
     expect(find.text('Unable to load shops right now.'), findsOneWidget);
   });
 
+  testWidgets(
+      'Tapping a shop card navigates to Shop Details screen and loads shop products',
+      (WidgetTester tester) async {
+    final container = ProviderContainer(
+      overrides: [
+        authRepositoryProvider.overrideWithValue(
+          FakeAuthRepository(
+            // Authenticated user
+            FakeUser(),
+          ),
+        ),
+        userRepositoryProvider.overrideWithValue(
+          FakeUserRepository({
+            'test-uid': const AppUser(
+              uid: 'test-uid',
+              displayName: 'Test User',
+            ),
+          }),
+        ),
+        shopRepositoryProvider
+            .overrideWithValue(FakeShopRepository(testShops)),
+        categoryRepositoryProvider
+            .overrideWithValue(FakeCategoryRepository(testCategories)),
+        productRepositoryProvider
+            .overrideWithValue(FakeProductRepository(testProducts)),
+      ],
+    );
+
+    final router = container.read(routerProvider);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp.router(
+          routerConfig: router,
+        ),
+      ),
+    );
+
+    router.go(AppRoutes.home);
+    await tester.pumpAndSettle();
+
+    // Tap first Sharma Kirana Store card
+    await tester.tap(find.text('Sharma Kirana Store').first);
+    await tester.pumpAndSettle();
+
+    // Verify Shop Details Screen renders
+    expect(find.byType(ShopDetailsScreen), findsOneWidget);
+    expect(find.text('Shop Details'), findsOneWidget);
+    expect(find.text('Sharma Kirana Store'), findsOneWidget);
+    expect(find.text('Available Products'), findsOneWidget);
+
+    // Verify Sharma's products are displayed (prod_001 in stock, prod_005 out of stock)
+    expect(find.text('Amul Taaza Milk 500ml'), findsOneWidget);
+    expect(find.text('₹28'), findsOneWidget);
+    expect(find.text('In Stock'), findsOneWidget);
+
+    expect(find.text('Maggi Noodles 70g'), findsOneWidget);
+    expect(find.text('₹14'), findsOneWidget);
+    expect(find.text('Out of Stock'), findsOneWidget);
+
+    // Verify Gupta's product (prod_006) does NOT appear in Sharma's shop
+    expect(find.text('Amul Gold Milk 500ml'), findsNothing);
+
+    // Test Back navigation to Home
+    await tester.tap(find.byIcon(Icons.arrow_back_rounded));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(HomeScreen), findsOneWidget);
+  });
+
+  testWidgets(
+      'Shop Details screen displays Shop not found when shop ID is invalid',
+      (WidgetTester tester) async {
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          shopRepositoryProvider
+              .overrideWithValue(FakeShopRepository(testShops)),
+          productRepositoryProvider
+              .overrideWithValue(FakeProductRepository(testProducts)),
+        ],
+        child: const MaterialApp(
+          home: ShopDetailsScreen(shopId: 'invalid_shop_id'),
+        ),
+      ),
+    );
+
+    await tester.pumpAndSettle();
+
+    expect(find.text('Shop not found'), findsOneWidget);
+    expect(find.text('Back to Home'), findsOneWidget);
+  });
+
+  testWidgets(
+      'Shop Details screen displays empty products state when shop has no products',
+      (WidgetTester tester) async {
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          shopRepositoryProvider
+              .overrideWithValue(FakeShopRepository(testShops)),
+          productRepositoryProvider
+              .overrideWithValue(FakeProductRepository([])),
+        ],
+        child: const MaterialApp(
+          home: ShopDetailsScreen(shopId: 'shop_001'),
+        ),
+      ),
+    );
+
+    await tester.pumpAndSettle();
+
+    expect(find.text('Sharma Kirana Store'), findsOneWidget);
+    expect(find.text('No products listed in this shop yet.'), findsOneWidget);
+  });
+
   testWidgets('Unauthenticated user navigating to home is redirected to login',
       (
     WidgetTester tester,
@@ -435,6 +679,8 @@ void main() {
             .overrideWithValue(FakeShopRepository(testShops)),
         categoryRepositoryProvider
             .overrideWithValue(FakeCategoryRepository(testCategories)),
+        productRepositoryProvider
+            .overrideWithValue(FakeProductRepository(testProducts)),
       ],
     );
 

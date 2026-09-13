@@ -9,6 +9,7 @@ import '../../features/auth/presentation/screens/phone_login_screen.dart';
 import '../../features/auth/presentation/screens/profile_setup_screen.dart';
 import '../../features/home/presentation/home_screen.dart';
 import '../../features/onboarding/presentation/onboarding_screen.dart';
+import '../../features/shops/presentation/screens/shop_details_screen.dart';
 import '../../features/splash/presentation/splash_screen.dart';
 import 'app_routes.dart';
 
@@ -110,6 +111,13 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: AppRoutes.home,
         builder: (context, state) => const HomeScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.shopDetailsPattern,
+        builder: (context, state) {
+          final shopId = state.pathParameters['shopId'] ?? '';
+          return ShopDetailsScreen(shopId: shopId);
+        },
       ),
     ],
   );
