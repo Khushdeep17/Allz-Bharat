@@ -6,8 +6,15 @@ import '../../../products/models/product.dart';
 
 class ProductCard extends StatelessWidget {
   final Product product;
+  final VoidCallback? onTap;
+  final String? shopName;
 
-  const ProductCard({super.key, required this.product});
+  const ProductCard({
+    super.key,
+    required this.product,
+    this.onTap,
+    this.shopName,
+  });
 
   String _formatPrice(double price) {
     if (price == price.truncateToDouble()) {
@@ -57,16 +64,19 @@ class ProductCard extends StatelessWidget {
     return Card(
       margin: EdgeInsets.zero,
       elevation: 0,
+      clipBehavior: Clip.antiAlias,
       shape: RoundedRectangleBorder(
         side: const BorderSide(color: AppColors.border, width: 1),
         borderRadius: AppRadius.borderMd,
       ),
       color: AppColors.surface,
-      child: Padding(
-        padding: const EdgeInsets.all(AppSpacing.md),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(AppSpacing.md),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
             // Product Image or Placeholder
             _buildProductImage(),
             const SizedBox(width: AppSpacing.md),
@@ -85,6 +95,31 @@ class ProductCard extends StatelessWidget {
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                   ),
+                  if (shopName != null && shopName!.isNotEmpty) ...[
+                    const SizedBox(height: AppSpacing.xs / 2),
+                    Row(
+                      children: [
+                        const Icon(
+                          Icons.storefront_rounded,
+                          size: 13,
+                          color: AppColors.textSecondary,
+                        ),
+                        const SizedBox(width: 4),
+                        Expanded(
+                          child: Text(
+                            shopName!,
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: AppColors.textSecondary,
+                              fontWeight: FontWeight.w500,
+                              fontSize: 12.0,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
                   if (product.description != null &&
                       product.description!.isNotEmpty) ...[
                     const SizedBox(height: AppSpacing.xs / 2),
@@ -138,6 +173,7 @@ class ProductCard extends StatelessWidget {
           ],
         ),
       ),
-    );
-  }
+    ),
+  );
+}
 }

@@ -6,11 +6,13 @@ import 'package:customer_app/features/auth/data/user_repository.dart';
 import 'package:customer_app/features/auth/models/app_user.dart';
 import 'package:customer_app/features/auth/presentation/screens/phone_login_screen.dart';
 import 'package:customer_app/features/auth/presentation/screens/profile_setup_screen.dart';
+import 'package:customer_app/features/cart/presentation/controllers/cart_controller.dart';
 import 'package:customer_app/features/categories/data/category_repository.dart';
 import 'package:customer_app/features/categories/models/category.dart';
 import 'package:customer_app/features/home/presentation/home_screen.dart';
 import 'package:customer_app/features/products/data/product_repository.dart';
 import 'package:customer_app/features/products/models/product.dart';
+import 'package:customer_app/features/products/presentation/screens/product_details_screen.dart';
 import 'package:customer_app/features/shops/data/shop_repository.dart';
 import 'package:customer_app/features/shops/models/shop.dart';
 import 'package:customer_app/features/shops/presentation/screens/shop_details_screen.dart';
@@ -699,5 +701,733 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byType(PhoneLoginScreen), findsOneWidget);
+  });
+
+  testWidgets(
+      'Tapping a product card in Shop Details navigates to Product Details screen and renders details',
+      (WidgetTester tester) async {
+    final container = ProviderContainer(
+      overrides: [
+        authRepositoryProvider.overrideWithValue(
+          FakeAuthRepository(FakeUser()),
+        ),
+        userRepositoryProvider.overrideWithValue(
+          FakeUserRepository({
+            'test-uid': const AppUser(
+              uid: 'test-uid',
+              displayName: 'Test User',
+            ),
+          }),
+        ),
+        shopRepositoryProvider
+            .overrideWithValue(FakeShopRepository(testShops)),
+        categoryRepositoryProvider
+            .overrideWithValue(FakeCategoryRepository(testCategories)),
+        productRepositoryProvider
+            .overrideWithValue(FakeProductRepository(testProducts)),
+      ],
+    );
+
+    final router = container.read(routerProvider);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp.router(
+          routerConfig: router,
+        ),
+      ),
+    );
+
+    // Go to Shop Details screen directly
+    router.go(AppRoutes.shopDetails('shop_001'));
+    await tester.pumpAndSettle();
+    // Tap on Amul Taaza Milk
+    await tester.tap(find.text('Amul Taaza Milk 500ml'));
+    await tester.pumpAndSettle();
+
+    // Verify Product Details Screen is rendered
+    expect(find.byType(ProductDetailsScreen), findsOneWidget);
+    expect(find.text('Product Details'), findsOneWidget);
+    expect(find.text('Sharma Kirana Store'), findsOneWidget);
+    expect(find.text('Amul Taaza Milk 500ml'), findsOneWidget);
+    expect(find.text('Fresh Amul Taaza milk 500ml pack'), findsOneWidget);
+    expect(find.text('In Stock'), findsOneWidget);
+    expect(find.text('Quantity'), findsOneWidget);
+    expect(find.text('1'), findsOneWidget);
+    expect(find.text('Add to Cart • ₹28'), findsOneWidget);
+
+    // Test instant cart quantity stepper (+) -> immediately updates cart to 2 without second confirmation
+    await tester.ensureVisible(find.byIcon(Icons.add_rounded));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byIcon(Icons.add_rounded));
+    await tester.pumpAndSettle();
+
+    expect(find.text('2'), findsNWidgets(2)); // Stepper + CartBadge
+    expect(find.text('View Cart • ₹56'), findsOneWidget);
+    expect(container.read(cartTotalItemsProvider), 2);
+    expect(container.read(cartTotalPriceProvider), 56.0);
+  });
+
+  testWidgets(
+      'Product Details screen disables Add to Cart when product is out of stock',
+      (WidgetTester tester) async {
+    final container = ProviderContainer(
+      overrides: [
+        authRepositoryProvider.overrideWithValue(
+          FakeAuthRepository(FakeUser()),
+        ),
+        userRepositoryProvider.overrideWithValue(
+          FakeUserRepository({
+            'test-uid': const AppUser(
+              uid: 'test-uid',
+              displayName: 'Test User',
+            ),
+          }),
+        ),
+        shopRepositoryProvider
+            .overrideWithValue(FakeShopRepository(testShops)),
+        categoryRepositoryProvider
+            .overrideWithValue(FakeCategoryRepository(testCategories)),
+        productRepositoryProvider
+            .overrideWithValue(FakeProductRepository(testProducts)),
+      ],
+    );
+
+    final router = container.read(routerProvider);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp.router(
+          routerConfig: router,
+        ),
+      ),
+    );
+
+    router.go(AppRoutes.productDetails(
+      shopId: 'shop_001',
+      productId: 'prod_005', // Maggi Noodles (inStock: false)
+    ));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(ProductDetailsScreen), findsOneWidget);
+    expect(find.text('Maggi Noodles 70g'), findsOneWidget);
+    expect(find.text('Out of Stock'), findsNWidgets(2)); // Badge and Button
+    expect(find.text('Quantity'), findsNothing); // Stepper hidden for OOS
+  });
+
+  testWidgets(
+      'Product Details screen shows single-shop conflict dialog when adding item from different shop',
+      (WidgetTester tester) async {
+    final container = ProviderContainer(
+      overrides: [
+        authRepositoryProvider.overrideWithValue(
+          FakeAuthRepository(FakeUser()),
+        ),
+        userRepositoryProvider.overrideWithValue(
+          FakeUserRepository({
+            'test-uid': const AppUser(
+              uid: 'test-uid',
+              displayName: 'Test User',
+            ),
+          }),
+        ),
+        shopRepositoryProvider
+            .overrideWithValue(FakeShopRepository(testShops)),
+        categoryRepositoryProvider
+            .overrideWithValue(FakeCategoryRepository(testCategories)),
+        productRepositoryProvider
+            .overrideWithValue(FakeProductRepository(testProducts)),
+      ],
+    );
+
+    // Pre-populate cart with shop_001 item
+    container.read(cartProvider.notifier).addItem(testProducts[0], 1);
+    expect(container.read(cartProvider).shopId, 'shop_001');
+
+    final router = container.read(routerProvider);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp.router(
+          routerConfig: router,
+        ),
+      ),
+    );
+
+    // Navigate to product belonging to shop_002 (Amul Gold Milk)
+    router.go(AppRoutes.productDetails(
+      shopId: 'shop_002',
+      productId: 'prod_006',
+    ));
+    await tester.pumpAndSettle();
+
+    // Tap Add to Cart
+    await tester.tap(find.text('Add to Cart • ₹32'));
+    await tester.pumpAndSettle();
+
+    // Verify Conflict Dialog opens
+    expect(find.text('Replace Cart Items?'), findsOneWidget);
+    expect(
+      find.text(
+        'Your cart already contains items from another store. Do you want to clear your cart and add items from this store instead?',
+      ),
+      findsOneWidget,
+    );
+
+    // Tap 'Clear & Add'
+    await tester.tap(find.text('Clear & Add'));
+    await tester.pumpAndSettle();
+
+    // Verify cart is now shop_002 with the new product
+    expect(container.read(cartProvider).shopId, 'shop_002');
+    expect(container.read(cartTotalItemsProvider), 1);
+    expect(container.read(cartTotalPriceProvider), 32.0);
+    expect(find.text('Cart replaced and item added!'), findsOneWidget);
+  });
+
+  group('Home Search Tests (Shops + Products)', () {
+    testWidgets(
+        'Search shop by name displays matching shop and hides non-matching shops',
+        (WidgetTester tester) async {
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            authRepositoryProvider.overrideWithValue(FakeAuthRepository()),
+            userRepositoryProvider.overrideWithValue(FakeUserRepository()),
+            shopRepositoryProvider
+                .overrideWithValue(FakeShopRepository(testShops)),
+            categoryRepositoryProvider
+                .overrideWithValue(FakeCategoryRepository(testCategories)),
+            productRepositoryProvider
+                .overrideWithValue(FakeProductRepository(testProducts)),
+          ],
+          child: const MaterialApp(
+            home: HomeScreen(),
+          ),
+        ),
+      );
+
+      await tester.pumpAndSettle();
+
+      // Enter query matching only Sharma shop
+      await tester.enterText(find.byType(TextField), 'Sharma');
+      await tester.pumpAndSettle();
+
+      expect(find.text('Shops'), findsOneWidget);
+      expect(find.text('Sharma Kirana Store'), findsOneWidget);
+      expect(find.text('Gupta General Store'), findsNothing);
+    });
+
+    testWidgets(
+        'Search product by name displays matching product with shop context',
+        (WidgetTester tester) async {
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            authRepositoryProvider.overrideWithValue(FakeAuthRepository()),
+            userRepositoryProvider.overrideWithValue(FakeUserRepository()),
+            shopRepositoryProvider
+                .overrideWithValue(FakeShopRepository(testShops)),
+            categoryRepositoryProvider
+                .overrideWithValue(FakeCategoryRepository(testCategories)),
+            productRepositoryProvider
+                .overrideWithValue(FakeProductRepository(testProducts)),
+          ],
+          child: const MaterialApp(
+            home: HomeScreen(),
+          ),
+        ),
+      );
+
+      await tester.pumpAndSettle();
+
+      // Enter query matching Maggi
+      await tester.enterText(find.byType(TextField), 'maggi');
+      await tester.pumpAndSettle();
+
+      expect(find.text('Products'), findsOneWidget);
+      expect(find.text('Maggi Noodles 70g'), findsOneWidget);
+      expect(find.text('Sharma Kirana Store'), findsOneWidget);
+      expect(find.text('₹14'), findsOneWidget);
+      expect(find.text('Shops'), findsNothing);
+    });
+
+    testWidgets(
+        'Product search is case-insensitive and supports partial substring',
+        (WidgetTester tester) async {
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            authRepositoryProvider.overrideWithValue(FakeAuthRepository()),
+            userRepositoryProvider.overrideWithValue(FakeUserRepository()),
+            shopRepositoryProvider
+                .overrideWithValue(FakeShopRepository(testShops)),
+            categoryRepositoryProvider
+                .overrideWithValue(FakeCategoryRepository(testCategories)),
+            productRepositoryProvider
+                .overrideWithValue(FakeProductRepository(testProducts)),
+          ],
+          child: const MaterialApp(
+            home: HomeScreen(),
+          ),
+        ),
+      );
+
+      await tester.pumpAndSettle();
+
+      // Search 'taa' for 'Amul Taaza Milk'
+      await tester.enterText(find.byType(TextField), 'TAA');
+      await tester.pumpAndSettle();
+
+      expect(find.text('Products'), findsOneWidget);
+      expect(find.text('Amul Taaza Milk 500ml'), findsOneWidget);
+      expect(find.text('Sharma Kirana Store'), findsOneWidget);
+    });
+
+    testWidgets(
+        'Products from different shops are not merged/deduplicated',
+        (WidgetTester tester) async {
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            authRepositoryProvider.overrideWithValue(FakeAuthRepository()),
+            userRepositoryProvider.overrideWithValue(FakeUserRepository()),
+            shopRepositoryProvider
+                .overrideWithValue(FakeShopRepository(testShops)),
+            categoryRepositoryProvider
+                .overrideWithValue(FakeCategoryRepository(testCategories)),
+            productRepositoryProvider
+                .overrideWithValue(FakeProductRepository(testProducts)),
+          ],
+          child: const MaterialApp(
+            home: HomeScreen(),
+          ),
+        ),
+      );
+
+      await tester.pumpAndSettle();
+
+      // Search 'Milk' - present in Sharma (Amul Taaza) and Gupta (Amul Gold)
+      await tester.enterText(find.byType(TextField), 'milk');
+      await tester.pumpAndSettle();
+
+      expect(find.text('Products'), findsOneWidget);
+      expect(find.text('Amul Taaza Milk 500ml'), findsOneWidget);
+      expect(find.text('Amul Gold Milk 500ml'), findsOneWidget);
+      expect(find.text('Sharma Kirana Store'), findsOneWidget);
+      expect(find.text('Gupta General Store'), findsOneWidget);
+    });
+
+    testWidgets(
+        'Query matching neither shops nor products shows No results found',
+        (WidgetTester tester) async {
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            authRepositoryProvider.overrideWithValue(FakeAuthRepository()),
+            userRepositoryProvider.overrideWithValue(FakeUserRepository()),
+            shopRepositoryProvider
+                .overrideWithValue(FakeShopRepository(testShops)),
+            categoryRepositoryProvider
+                .overrideWithValue(FakeCategoryRepository(testCategories)),
+            productRepositoryProvider
+                .overrideWithValue(FakeProductRepository(testProducts)),
+          ],
+          child: const MaterialApp(
+            home: HomeScreen(),
+          ),
+        ),
+      );
+
+      await tester.pumpAndSettle();
+
+      await tester.enterText(find.byType(TextField), 'xyz123nonsense');
+      await tester.pumpAndSettle();
+
+      expect(find.text("No results found for 'xyz123nonsense'"), findsOneWidget);
+      expect(find.text('Shops'), findsNothing);
+      expect(find.text('Products'), findsNothing);
+    });
+
+    testWidgets(
+        'Clearing search restores normal Home categories and featured shops',
+        (WidgetTester tester) async {
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            authRepositoryProvider.overrideWithValue(FakeAuthRepository()),
+            userRepositoryProvider.overrideWithValue(FakeUserRepository()),
+            shopRepositoryProvider
+                .overrideWithValue(FakeShopRepository(testShops)),
+            categoryRepositoryProvider
+                .overrideWithValue(FakeCategoryRepository(testCategories)),
+            productRepositoryProvider
+                .overrideWithValue(FakeProductRepository(testProducts)),
+          ],
+          child: const MaterialApp(
+            home: HomeScreen(),
+          ),
+        ),
+      );
+
+      await tester.pumpAndSettle();
+
+      await tester.enterText(find.byType(TextField), 'maggi');
+      await tester.pumpAndSettle();
+      expect(find.text('Products'), findsOneWidget);
+
+      await tester.tap(find.byIcon(Icons.clear_rounded));
+      await tester.pumpAndSettle();
+
+      // Normal content restored
+      expect(find.text('Categories'), findsNWidgets(2));
+      expect(find.text('Featured Express Stores'), findsOneWidget);
+      expect(find.text('Nearby Kirana Shops'), findsOneWidget);
+    });
+
+    testWidgets(
+        'Tapping a product search result navigates to Product Details route',
+        (WidgetTester tester) async {
+      final container = ProviderContainer(
+        overrides: [
+          authRepositoryProvider.overrideWithValue(
+            FakeAuthRepository(FakeUser()),
+          ),
+          userRepositoryProvider.overrideWithValue(
+            FakeUserRepository({
+              'test-uid': const AppUser(
+                uid: 'test-uid',
+                displayName: 'Test User',
+              ),
+            }),
+          ),
+          shopRepositoryProvider
+              .overrideWithValue(FakeShopRepository(testShops)),
+          categoryRepositoryProvider
+              .overrideWithValue(FakeCategoryRepository(testCategories)),
+          productRepositoryProvider
+              .overrideWithValue(FakeProductRepository(testProducts)),
+        ],
+      );
+
+      final router = container.read(routerProvider);
+
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: MaterialApp.router(
+            routerConfig: router,
+          ),
+        ),
+      );
+
+      router.go(AppRoutes.home);
+      await tester.pumpAndSettle();
+
+      // Search 'Maggi'
+      await tester.enterText(find.byType(TextField), 'maggi');
+      await tester.pumpAndSettle();
+
+      // Tap the product search result
+      await tester.tap(find.text('Maggi Noodles 70g'));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(ProductDetailsScreen), findsOneWidget);
+      expect(find.text('Maggi Noodles 70g'), findsOneWidget);
+      expect(find.text('Sharma Kirana Store'), findsOneWidget);
+    });
+  });
+
+  group('Instant Cart Quantity UX Tests', () {
+    testWidgets(
+        'Product not in cart starts at quantity 1 and tapping Add to Cart creates 1 item',
+        (WidgetTester tester) async {
+      final container = ProviderContainer(
+        overrides: [
+          authRepositoryProvider.overrideWithValue(
+            FakeAuthRepository(FakeUser()),
+          ),
+          userRepositoryProvider.overrideWithValue(
+            FakeUserRepository({
+              'test-uid': const AppUser(
+                uid: 'test-uid',
+                displayName: 'Test User',
+              ),
+            }),
+          ),
+          shopRepositoryProvider
+              .overrideWithValue(FakeShopRepository(testShops)),
+          productRepositoryProvider
+              .overrideWithValue(FakeProductRepository(testProducts)),
+        ],
+      );
+
+      final router = container.read(routerProvider);
+
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: MaterialApp.router(
+            routerConfig: router,
+          ),
+        ),
+      );
+
+      router.go(AppRoutes.productDetails(
+        shopId: 'shop_001',
+        productId: 'prod_001',
+      ));
+      await tester.pumpAndSettle();
+
+      expect(find.text('1'), findsOneWidget);
+      expect(find.text('Add to Cart • ₹28'), findsOneWidget);
+
+      await tester.tap(find.text('Add to Cart • ₹28'));
+      await tester.pumpAndSettle();
+
+      expect(container.read(cartTotalItemsProvider), 1);
+      expect(container.read(cartTotalPriceProvider), 28.0);
+      expect(find.text('View Cart • ₹28'), findsOneWidget);
+    });
+
+    testWidgets(
+        'Increasing quantity 1 -> 2 -> 3 immediately updates cart to 2 and 3 without double-add',
+        (WidgetTester tester) async {
+      final container = ProviderContainer(
+        overrides: [
+          authRepositoryProvider.overrideWithValue(
+            FakeAuthRepository(FakeUser()),
+          ),
+          userRepositoryProvider.overrideWithValue(
+            FakeUserRepository({
+              'test-uid': const AppUser(
+                uid: 'test-uid',
+                displayName: 'Test User',
+              ),
+            }),
+          ),
+          shopRepositoryProvider
+              .overrideWithValue(FakeShopRepository(testShops)),
+          productRepositoryProvider
+              .overrideWithValue(FakeProductRepository(testProducts)),
+        ],
+      );
+
+      final router = container.read(routerProvider);
+
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: MaterialApp.router(
+            routerConfig: router,
+          ),
+        ),
+      );
+
+      router.go(AppRoutes.productDetails(
+        shopId: 'shop_001',
+        productId: 'prod_001',
+      ));
+      await tester.pumpAndSettle();
+
+      // Tap + once -> becomes 2 in cart (increased from initial 1)
+      await tester.ensureVisible(find.byIcon(Icons.add_rounded));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byIcon(Icons.add_rounded));
+      await tester.pumpAndSettle();
+      expect(container.read(cartTotalItemsProvider), 2);
+      expect(container.read(cartTotalPriceProvider), 56.0);
+      expect(find.text('2'), findsNWidgets(2)); // Stepper + CartBadge
+      expect(find.text('View Cart • ₹56'), findsOneWidget);
+
+      // Tap + second time -> becomes 3 in cart
+      await tester.ensureVisible(find.byIcon(Icons.add_rounded));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byIcon(Icons.add_rounded));
+      await tester.pumpAndSettle();
+      expect(container.read(cartTotalItemsProvider), 3);
+      expect(container.read(cartTotalPriceProvider), 84.0);
+      expect(find.text('3'), findsNWidgets(2)); // Stepper + CartBadge
+      expect(find.text('View Cart • ₹84'), findsOneWidget);
+    });
+
+    testWidgets(
+        'Opening product already in cart initializes stepper with existing quantity',
+        (WidgetTester tester) async {
+      final container = ProviderContainer(
+        overrides: [
+          authRepositoryProvider.overrideWithValue(
+            FakeAuthRepository(FakeUser()),
+          ),
+          userRepositoryProvider.overrideWithValue(
+            FakeUserRepository({
+              'test-uid': const AppUser(
+                uid: 'test-uid',
+                displayName: 'Test User',
+              ),
+            }),
+          ),
+          shopRepositoryProvider
+              .overrideWithValue(FakeShopRepository(testShops)),
+          productRepositoryProvider
+              .overrideWithValue(FakeProductRepository(testProducts)),
+        ],
+      );
+
+      // Pre-add 3 items
+      container.read(cartProvider.notifier).setQuantity(testProducts[0], 3);
+
+      final router = container.read(routerProvider);
+
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: MaterialApp.router(
+            routerConfig: router,
+          ),
+        ),
+      );
+
+      router.go(AppRoutes.productDetails(
+        shopId: 'shop_001',
+        productId: 'prod_001',
+      ));
+      await tester.pumpAndSettle();
+
+      // Starts initialized at 3 (Stepper + CartBadge)
+      expect(find.text('3'), findsNWidgets(2));
+      expect(find.text('View Cart • ₹84'), findsOneWidget);
+
+      // Decrement 3 -> 2
+      await tester.ensureVisible(find.byIcon(Icons.remove_rounded));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byIcon(Icons.remove_rounded));
+      await tester.pumpAndSettle();
+      expect(find.text('2'), findsNWidgets(2));
+      expect(container.read(cartTotalItemsProvider), 2);
+      expect(container.read(cartTotalPriceProvider), 56.0);
+
+      // Decrement 2 -> 1
+      await tester.ensureVisible(find.byIcon(Icons.remove_rounded));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byIcon(Icons.remove_rounded));
+      await tester.pumpAndSettle();
+      expect(find.text('1'), findsNWidgets(2));
+      expect(container.read(cartTotalItemsProvider), 1);
+      expect(container.read(cartTotalPriceProvider), 28.0);
+
+      // Decrement 1 -> 0 (removes item from cart)
+      await tester.ensureVisible(find.byIcon(Icons.remove_rounded));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byIcon(Icons.remove_rounded));
+      await tester.pumpAndSettle();
+      expect(container.read(cartTotalItemsProvider), 0);
+      expect(find.text('1'), findsOneWidget); // Stepper resets to 1, no badge
+      expect(find.text('Add to Cart • ₹28'), findsOneWidget);
+    });
+  });
+
+  group('Shop Details Scoped Search Tests', () {
+    testWidgets(
+        'Shop Details screen search bar filters products within shop case-insensitively and updates item count',
+        (WidgetTester tester) async {
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            shopRepositoryProvider
+                .overrideWithValue(FakeShopRepository(testShops)),
+            productRepositoryProvider
+                .overrideWithValue(FakeProductRepository(testProducts)),
+          ],
+          child: const MaterialApp(
+            home: ShopDetailsScreen(shopId: 'shop_001'),
+          ),
+        ),
+      );
+
+      await tester.pumpAndSettle();
+
+      // Initial state: 2 products in Sharma Kirana Store
+      expect(find.text('2 items'), findsOneWidget);
+      expect(find.text('Amul Taaza Milk 500ml'), findsOneWidget);
+      expect(find.text('Maggi Noodles 70g'), findsOneWidget);
+
+      // Filter by 'maggi'
+      await tester.enterText(find.byType(TextField), 'maggi');
+      await tester.pumpAndSettle();
+
+      // Header badge updates to 1 item, Amul is filtered out
+      expect(find.text('1 items'), findsOneWidget);
+      expect(find.text('Maggi Noodles 70g'), findsOneWidget);
+      expect(find.text('Amul Taaza Milk 500ml'), findsNothing);
+    });
+
+    testWidgets(
+        'Shop Details screen search bar displays empty state when no products match query',
+        (WidgetTester tester) async {
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            shopRepositoryProvider
+                .overrideWithValue(FakeShopRepository(testShops)),
+            productRepositoryProvider
+                .overrideWithValue(FakeProductRepository(testProducts)),
+          ],
+          child: const MaterialApp(
+            home: ShopDetailsScreen(shopId: 'shop_001'),
+          ),
+        ),
+      );
+
+      await tester.pumpAndSettle();
+
+      // Type query not present in shop_001
+      await tester.enterText(find.byType(TextField), 'ice cream');
+      await tester.pumpAndSettle();
+
+      expect(find.text("No products found for 'ice cream'"), findsOneWidget);
+      expect(find.text('0 items'), findsOneWidget);
+      expect(find.text('Amul Taaza Milk 500ml'), findsNothing);
+      expect(find.text('Maggi Noodles 70g'), findsNothing);
+    });
+
+    testWidgets(
+        'Shop Details screen search bar restores all products when query is cleared',
+        (WidgetTester tester) async {
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            shopRepositoryProvider
+                .overrideWithValue(FakeShopRepository(testShops)),
+            productRepositoryProvider
+                .overrideWithValue(FakeProductRepository(testProducts)),
+          ],
+          child: const MaterialApp(
+            home: ShopDetailsScreen(shopId: 'shop_001'),
+          ),
+        ),
+      );
+
+      await tester.pumpAndSettle();
+
+      // Filter by 'taaza'
+      await tester.enterText(find.byType(TextField), 'taaza');
+      await tester.pumpAndSettle();
+      expect(find.text('1 items'), findsOneWidget);
+      expect(find.text('Amul Taaza Milk 500ml'), findsOneWidget);
+      expect(find.text('Maggi Noodles 70g'), findsNothing);
+
+      // Tap clear button on search bar
+      await tester.tap(find.byIcon(Icons.clear_rounded));
+      await tester.pumpAndSettle();
+
+      // All products restored
+      expect(find.text('2 items'), findsOneWidget);
+      expect(find.text('Amul Taaza Milk 500ml'), findsOneWidget);
+      expect(find.text('Maggi Noodles 70g'), findsOneWidget);
+    });
   });
 }

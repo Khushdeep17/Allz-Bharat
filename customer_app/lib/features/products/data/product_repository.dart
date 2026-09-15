@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../shops/data/shop_repository.dart';
 import '../models/product.dart';
 import 'product_repository_impl.dart';
 
@@ -63,4 +64,22 @@ final productByIdProvider =
     StreamProvider.autoDispose.family<Product?, String>((ref, id) {
   final repository = ref.watch(productRepositoryProvider);
   return repository.watchProductById(id);
+});
+
+/// Reactive provider combining products across all active shops for client-side search.
+final allActiveProductsProvider = Provider.autoDispose<List<Product>>((ref) {
+  final shopsAsync = ref.watch(shopsStreamProvider);
+  return shopsAsync.maybeWhen(
+    data: (shops) {
+      final allProducts = <Product>[];
+      for (final shop in shops) {
+        final productsAsync = ref.watch(productsByShopProvider(shop.id));
+        productsAsync.whenData((products) {
+          allProducts.addAll(products);
+        });
+      }
+      return allProducts;
+    },
+    orElse: () => const [],
+  );
 });

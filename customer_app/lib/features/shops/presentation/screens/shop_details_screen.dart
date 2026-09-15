@@ -4,21 +4,38 @@ import 'package:go_router/go_router.dart';
 
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/constants/app_sizes.dart';
+import '../../../../core/routing/app_routes.dart';
+import '../../../cart/presentation/widgets/cart_badge.dart';
+import '../../../home/presentation/widgets/search_bar_widget.dart';
 import '../../../products/data/product_repository.dart';
 import '../../data/shop_repository.dart';
 import '../widgets/product_card.dart';
 import '../widgets/shop_header.dart';
 
-class ShopDetailsScreen extends ConsumerWidget {
+class ShopDetailsScreen extends ConsumerStatefulWidget {
   final String shopId;
 
   const ShopDetailsScreen({super.key, required this.shopId});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<ShopDetailsScreen> createState() => _ShopDetailsScreenState();
+}
+
+class _ShopDetailsScreenState extends ConsumerState<ShopDetailsScreen> {
+  final TextEditingController _searchController = TextEditingController();
+  String _searchQuery = '';
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final shopAsync = ref.watch(shopByIdProvider(shopId));
-    final productsAsync = ref.watch(productsByShopProvider(shopId));
+    final shopAsync = ref.watch(shopByIdProvider(widget.shopId));
+    final productsAsync = ref.watch(productsByShopProvider(widget.shopId));
 
     return Scaffold(
       backgroundColor: AppColors.background,
@@ -34,6 +51,10 @@ class ShopDetailsScreen extends ConsumerWidget {
             }
           },
         ),
+        actions: const [
+          CartBadge(),
+          SizedBox(width: AppSpacing.sm),
+        ],
         elevation: 0,
         backgroundColor: AppColors.surface,
         foregroundColor: AppColors.textPrimary,
@@ -133,9 +154,27 @@ class ShopDetailsScreen extends ConsumerWidget {
               children: [
                 // 1. Shop Header Card
                 ShopHeader(shop: shop),
+                const SizedBox(height: AppSpacing.md),
+
+                // 2. Product Search Bar
+                SearchBarWidget(
+                  controller: _searchController,
+                  hintText: 'Search products in this shop...',
+                  showFilterIcon: false,
+                  onChanged: (val) {
+                    setState(() {
+                      _searchQuery = val.trim();
+                    });
+                  },
+                  onClear: () {
+                    setState(() {
+                      _searchQuery = '';
+                    });
+                  },
+                ),
                 const SizedBox(height: AppSpacing.lg),
 
-                // 2. Products Section Header
+                // 3. Products Section Header
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
@@ -147,30 +186,39 @@ class ShopDetailsScreen extends ConsumerWidget {
                       ),
                     ),
                     productsAsync.maybeWhen(
-                      data: (products) => Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: AppSpacing.sm,
-                          vertical: AppSpacing.xs / 2,
-                        ),
-                        decoration: const BoxDecoration(
-                          color: AppColors.primaryContainer,
-                          borderRadius: AppRadius.borderSm,
-                        ),
-                        child: Text(
-                          '${products.length} items',
-                          style: theme.textTheme.labelSmall?.copyWith(
-                            color: AppColors.primary,
-                            fontWeight: FontWeight.bold,
+                      data: (products) {
+                        final count = _searchQuery.isEmpty
+                            ? products.length
+                            : products
+                                .where((p) => p.name
+                                    .toLowerCase()
+                                    .contains(_searchQuery.toLowerCase()))
+                                .length;
+                        return Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: AppSpacing.sm,
+                            vertical: AppSpacing.xs / 2,
                           ),
-                        ),
-                      ),
+                          decoration: const BoxDecoration(
+                            color: AppColors.primaryContainer,
+                            borderRadius: AppRadius.borderSm,
+                          ),
+                          child: Text(
+                            '$count items',
+                            style: theme.textTheme.labelSmall?.copyWith(
+                              color: AppColors.primary,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        );
+                      },
                       orElse: () => const SizedBox.shrink(),
                     ),
                   ],
                 ),
                 const SizedBox(height: AppSpacing.md),
 
-                // 3. Products List
+                // 4. Products List
                 productsAsync.when(
                   loading: () => const Padding(
                     padding: EdgeInsets.symmetric(vertical: AppSpacing.xl),
@@ -221,15 +269,61 @@ class ShopDetailsScreen extends ConsumerWidget {
                       );
                     }
 
+                    final filteredProducts = _searchQuery.isEmpty
+                        ? products
+                        : products
+                            .where((p) => p.name
+                                .toLowerCase()
+                                .contains(_searchQuery.toLowerCase()))
+                            .toList();
+
+                    if (filteredProducts.isEmpty) {
+                      return Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(AppSpacing.xl),
+                        decoration: BoxDecoration(
+                          color: AppColors.surface,
+                          borderRadius: AppRadius.borderMd,
+                          border:
+                              Border.all(color: AppColors.border, width: 1),
+                        ),
+                        child: Column(
+                          children: [
+                            const Icon(
+                              Icons.search_off_rounded,
+                              color: AppColors.textMuted,
+                              size: 40,
+                            ),
+                            const SizedBox(height: AppSpacing.sm),
+                            Text(
+                              "No products found for '$_searchQuery'",
+                              style: theme.textTheme.bodyMedium?.copyWith(
+                                color: AppColors.textSecondary,
+                              ),
+                              textAlign: TextAlign.center,
+                            ),
+                          ],
+                        ),
+                      );
+                    }
+
                     return ListView.separated(
                       shrinkWrap: true,
                       physics: const NeverScrollableScrollPhysics(),
-                      itemCount: products.length,
+                      itemCount: filteredProducts.length,
                       separatorBuilder: (context, index) =>
                           const SizedBox(height: AppSpacing.sm),
                       itemBuilder: (context, index) {
-                        final product = products[index];
-                        return ProductCard(product: product);
+                        final product = filteredProducts[index];
+                        return ProductCard(
+                          product: product,
+                          onTap: () => context.push(
+                            AppRoutes.productDetails(
+                              shopId: shop.id,
+                              productId: product.id,
+                            ),
+                          ),
+                        );
                       },
                     );
                   },
