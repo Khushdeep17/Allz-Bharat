@@ -5,6 +5,7 @@ import 'package:customer_app/features/orders/models/order_delivery.dart';
 import 'package:customer_app/features/orders/models/order_item.dart';
 import 'package:customer_app/features/orders/models/order_pricing.dart';
 import 'package:customer_app/features/orders/models/order_status.dart';
+import 'package:customer_app/features/orders/models/payment_status.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -105,7 +106,30 @@ void main() {
       expect(OrderStatus.fromString(null), OrderStatus.pending);
     });
 
-    test('Order full snapshot serialization and deserialization', () {
+    test('PaymentStatus values, display names and graceful parsing', () {
+      expect(PaymentStatus.pending.value, 'pending');
+      expect(PaymentStatus.pending.displayName, 'Pending');
+      expect(PaymentStatus.paid.value, 'paid');
+      expect(PaymentStatus.paid.displayName, 'Paid');
+      expect(PaymentStatus.failed.value, 'failed');
+      expect(PaymentStatus.failed.displayName, 'Failed');
+      expect(PaymentStatus.cancelled.value, 'cancelled');
+      expect(PaymentStatus.cancelled.displayName, 'Cancelled');
+      expect(PaymentStatus.refunded.value, 'refunded');
+      expect(PaymentStatus.refunded.displayName, 'Refunded');
+
+      expect(PaymentStatus.fromString('pending'), PaymentStatus.pending);
+      expect(PaymentStatus.fromString('paid'), PaymentStatus.paid);
+      expect(PaymentStatus.fromString('failed'), PaymentStatus.failed);
+      expect(PaymentStatus.fromString('cancelled'), PaymentStatus.cancelled);
+      expect(PaymentStatus.fromString('refunded'), PaymentStatus.refunded);
+      expect(PaymentStatus.fromString('unknown_payment_status'), PaymentStatus.pending);
+      expect(PaymentStatus.fromString(null), PaymentStatus.pending);
+    });
+
+    test('Order full snapshot serialization and deserialization with payment fields', () {
+      final paidDate = DateTime(2026, 9, 14, 15, 31, 0);
+
       final order = Order(
         orderId: 'order_123',
         customerId: 'user_456',
@@ -139,7 +163,12 @@ void main() {
           platformFee: 5.0,
           total: 321.0,
         ),
-        status: 'pending',
+        status: 'confirmed',
+        paymentStatus: 'paid',
+        paymentOrderId: 'order_cf_12345',
+        paymentId: 'cf_pay_987654',
+        paymentMethod: 'upi',
+        paidAt: paidDate,
         createdAt: testDate,
       );
 
@@ -147,8 +176,14 @@ void main() {
       expect(order.customerId, 'user_456');
       expect(order.shopId, 'shop_789');
       expect(order.shopName, 'Sharma Kirana Store');
-      expect(order.status, 'pending');
-      expect(order.orderStatus, OrderStatus.pending);
+      expect(order.status, 'confirmed');
+      expect(order.orderStatus, OrderStatus.confirmed);
+      expect(order.paymentStatus, 'paid');
+      expect(order.paymentStatusEnum, PaymentStatus.paid);
+      expect(order.paymentOrderId, 'order_cf_12345');
+      expect(order.paymentId, 'cf_pay_987654');
+      expect(order.paymentMethod, 'upi');
+      expect(order.paidAt, paidDate);
       expect(order.items.length, 2);
       expect(order.pricing.subtotal, 301.0);
       expect(order.pricing.total, 321.0);
@@ -158,7 +193,12 @@ void main() {
       expect(map['customerId'], 'user_456');
       expect(map['shopId'], 'shop_789');
       expect(map['shopName'], 'Sharma Kirana Store');
-      expect(map['status'], 'pending');
+      expect(map['status'], 'confirmed');
+      expect(map['paymentStatus'], 'paid');
+      expect(map['paymentOrderId'], 'order_cf_12345');
+      expect(map['paymentId'], 'cf_pay_987654');
+      expect(map['paymentMethod'], 'upi');
+      expect(map['paidAt'], isA<Timestamp>());
       expect((map['items'] as List).length, 2);
       expect((map['delivery'] as Map)['fullAddress'], '123 Main Road, Meerut');
       expect((map['pricing'] as Map)['total'], 321.0);
@@ -174,11 +214,17 @@ void main() {
       expect(deserialized.items[1].name, 'Tata Salt 1kg');
       expect(deserialized.delivery.phoneNumber, '9876543210');
       expect(deserialized.pricing.total, 321.0);
-      expect(deserialized.status, 'pending');
+      expect(deserialized.status, 'confirmed');
+      expect(deserialized.paymentStatus, 'paid');
+      expect(deserialized.paymentStatusEnum, PaymentStatus.paid);
+      expect(deserialized.paymentOrderId, 'order_cf_12345');
+      expect(deserialized.paymentId, 'cf_pay_987654');
+      expect(deserialized.paymentMethod, 'upi');
+      expect(deserialized.paidAt, paidDate);
       expect(deserialized.createdAt, testDate);
     });
 
-    test('Order copyWith and equality checks', () {
+    test('Order copyWith and equality checks with payment fields', () {
       final order1 = Order(
         orderId: 'order_1',
         customerId: 'c1',
@@ -198,20 +244,25 @@ void main() {
           total: 70.0,
         ),
         status: 'pending',
+        paymentStatus: 'pending',
       );
 
-      final order2 = order1.copyWith(status: 'confirmed');
+      final order2 = order1.copyWith(
+        status: 'confirmed',
+        paymentStatus: 'paid',
+        paymentId: 'pay_123',
+      );
       expect(order2.status, 'confirmed');
       expect(order2.orderStatus, OrderStatus.confirmed);
+      expect(order2.paymentStatus, 'paid');
+      expect(order2.paymentStatusEnum, PaymentStatus.paid);
+      expect(order2.paymentId, 'pay_123');
       expect(order2.orderId, 'order_1');
       expect(order1 == order2, isFalse);
     });
 
-    test('Order model supports optional cancellation fields and backward compatibility', () {
-      final cancelDate = DateTime(2026, 9, 14, 16, 0, 0);
-
-      // 1. Order without cancellation fields (backward compatibility)
-      final mapWithoutCancellation = <String, dynamic>{
+    test('Order backward compatibility for legacy orders without payment fields', () {
+      final legacyMap = <String, dynamic>{
         'customerId': 'user_123',
         'shopId': 'shop_1',
         'shopName': 'Shop 1',
@@ -232,13 +283,45 @@ void main() {
         'createdAt': Timestamp.fromDate(testDate),
       };
 
-      final orderWithoutCancellation = Order.fromMap(mapWithoutCancellation, id: 'order_old');
-      expect(orderWithoutCancellation.cancelledAt, isNull);
-      expect(orderWithoutCancellation.cancellationReason, isNull);
-      expect(orderWithoutCancellation.status, 'pending');
+      final legacyOrder = Order.fromMap(legacyMap, id: 'order_legacy');
+      expect(legacyOrder.orderId, 'order_legacy');
+      expect(legacyOrder.paymentStatus, 'pending');
+      expect(legacyOrder.paymentStatusEnum, PaymentStatus.pending);
+      expect(legacyOrder.paymentOrderId, isNull);
+      expect(legacyOrder.paymentId, isNull);
+      expect(legacyOrder.paymentMethod, isNull);
+      expect(legacyOrder.paidAt, isNull);
+      expect(legacyOrder.cancelledAt, isNull);
+      expect(legacyOrder.cancellationReason, isNull);
+      expect(legacyOrder.status, 'pending');
+    });
 
-      // 2. Cancelled order serialization and deserialization
-      final cancelledOrder = orderWithoutCancellation.copyWith(
+    test('Order model supports optional cancellation fields', () {
+      final cancelDate = DateTime(2026, 9, 14, 16, 0, 0);
+
+      final baseOrder = Order(
+        orderId: 'order_c',
+        customerId: 'user_123',
+        shopId: 'shop_1',
+        shopName: 'Shop 1',
+        items: const [],
+        delivery: const OrderDelivery(
+          addressId: 'a1',
+          label: 'Home',
+          fullAddress: 'Address 1',
+          phoneNumber: '1111111111',
+        ),
+        pricing: const OrderPricing(
+          subtotal: 50.0,
+          deliveryFee: 15.0,
+          platformFee: 5.0,
+          total: 70.0,
+        ),
+        status: 'pending',
+        createdAt: testDate,
+      );
+
+      final cancelledOrder = baseOrder.copyWith(
         status: 'cancelled',
         cancelledAt: cancelDate,
         cancellationReason: 'Cancelled by customer',
@@ -254,7 +337,7 @@ void main() {
       expect(serializedMap['cancellationReason'], 'Cancelled by customer');
       expect(serializedMap['cancelledAt'], isA<Timestamp>());
 
-      final deserializedCancelled = Order.fromMap(serializedMap, id: 'order_old');
+      final deserializedCancelled = Order.fromMap(serializedMap, id: 'order_c');
       expect(deserializedCancelled.status, 'cancelled');
       expect(deserializedCancelled.orderStatus, OrderStatus.cancelled);
       expect(deserializedCancelled.cancelledAt, cancelDate);

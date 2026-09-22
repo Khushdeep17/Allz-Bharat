@@ -35,8 +35,8 @@ final addressRepositoryProvider = Provider<AddressRepository>((ref) {
 
 /// Reactive stream provider for the currently authenticated user's address list.
 final userAddressesStreamProvider = StreamProvider<List<Address>>((ref) {
-  final authState = ref.watch(authStateChangesProvider);
-  final user = authState.valueOrNull;
+  final user = ref.watch(authRepositoryProvider).currentUser ??
+      ref.watch(authStateChangesProvider).valueOrNull;
 
   if (user == null) {
     return Stream.value(const <Address>[]);

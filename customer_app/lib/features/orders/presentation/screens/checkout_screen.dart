@@ -11,11 +11,10 @@ import '../../../auth/data/auth_repository.dart';
 import '../../../cart/models/cart_item.dart';
 import '../../../cart/presentation/controllers/cart_controller.dart';
 import '../../../shops/data/shop_repository.dart';
-import '../../data/order_repository.dart';
-import '../../models/order.dart';
-import '../../models/order_delivery.dart';
-import '../../models/order_item.dart';
+import '../../data/cashfree_service.dart';
+import '../../data/payment_repository.dart';
 import '../../models/order_pricing.dart';
+import '../../models/payment_status.dart';
 
 class CheckoutScreen extends ConsumerStatefulWidget {
   const CheckoutScreen({super.key});
@@ -34,7 +33,7 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
     return '₹${price.toStringAsFixed(2)}';
   }
 
-  Future<void> _placeOrder({
+  Future<void> _payAndPlaceOrder({
     required Address defaultAddress,
     required String shopName,
     required String shopId,
@@ -43,7 +42,8 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
   }) async {
     if (_isSubmitting) return;
 
-    final user = ref.read(authStateChangesProvider).valueOrNull;
+    final user = ref.read(authRepositoryProvider).currentUser ??
+        ref.read(authStateChangesProvider).valueOrNull;
     if (user == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -58,41 +58,117 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
       _isSubmitting = true;
     });
 
-    final pricing = OrderPricing.calculate(subtotal: subtotal);
-    final orderItems = items
-        .map(
-          (item) => OrderItem(
-            productId: item.productId,
-            name: item.name,
-            price: item.price,
-            quantity: item.quantity,
-            subtotal: item.itemTotal,
-          ),
-        )
-        .toList();
-
-    final order = Order(
-      orderId: '',
-      customerId: user.uid,
-      shopId: shopId,
-      shopName: shopName,
-      items: orderItems,
-      delivery: OrderDelivery.fromAddress(defaultAddress),
-      pricing: pricing,
-      status: 'pending',
-    );
-
     try {
-      final orderRepo = ref.read(orderRepositoryProvider);
-      final createdOrderId = await orderRepo.createOrder(order);
+      final paymentRepo = ref.read(paymentRepositoryProvider);
+      final cashfreeService = ref.read(cashfreePaymentServiceProvider);
 
-      // Cart is cleared ONLY after successful order creation
-      ref.read(cartProvider.notifier).clearCart();
+      // 1. Create server-side payment session
+      final sessionResult = await paymentRepo.createPaymentSession(
+        shopId: shopId,
+        items: items,
+        deliveryAddress: defaultAddress,
+        customerName: user.displayName,
+        customerPhone: defaultAddress.phoneNumber,
+        customerEmail: user.email,
+      );
 
-      if (!mounted) return;
+      if (!sessionResult.success || sessionResult.paymentSessionId == null) {
+        if (!mounted) return;
+        setState(() {
+          _isSubmitting = false;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              sessionResult.message ?? 'Failed to initialize payment session.',
+            ),
+            backgroundColor: AppColors.error,
+            duration: const Duration(seconds: 4),
+          ),
+        );
+        return;
+      }
 
-      // Navigate to order confirmation/details
-      context.go(AppRoutes.orderDetails(createdOrderId));
+      // 2. Setup Cashfree SDK callbacks
+      cashfreeService.setCallbacks(
+        onVerify: (orderId) async {
+          try {
+            // Request trusted backend to verify the payment
+            final verificationResult = await paymentRepo.verifyPayment(
+              orderId: sessionResult.orderId,
+              paymentOrderId: sessionResult.paymentOrderId,
+            );
+
+            if (verificationResult.paymentStatus == PaymentStatus.paid) {
+              // Clear cart ONLY after paymentStatus == paid and final order exists
+              ref.read(cartProvider.notifier).clearCart();
+
+              if (!mounted) return;
+              context.go(AppRoutes.orderDetails(verificationResult.orderId));
+            } else if (verificationResult.paymentStatus == PaymentStatus.pending) {
+              if (!mounted) return;
+              setState(() {
+                _isSubmitting = false;
+              });
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text(
+                    'Payment verification is still in progress. Please check your orders shortly.',
+                  ),
+                  backgroundColor: AppColors.primary,
+                  duration: Duration(seconds: 4),
+                ),
+              );
+            } else {
+              if (!mounted) return;
+              setState(() {
+                _isSubmitting = false;
+              });
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(
+                    verificationResult.message ??
+                        'Payment was not successful. Please try again.',
+                  ),
+                  backgroundColor: AppColors.error,
+                  duration: const Duration(seconds: 4),
+                ),
+              );
+            }
+          } catch (e) {
+            if (!mounted) return;
+            setState(() {
+              _isSubmitting = false;
+            });
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Payment verification failed: ${e.toString()}'),
+                backgroundColor: AppColors.error,
+                duration: const Duration(seconds: 4),
+              ),
+            );
+          }
+        },
+        onError: (errorResponse, orderId) {
+          if (!mounted) return;
+          setState(() {
+            _isSubmitting = false;
+          });
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Payment was cancelled or failed. Please try again.'),
+              backgroundColor: AppColors.error,
+              duration: Duration(seconds: 4),
+            ),
+          );
+        },
+      );
+
+      // 3. Launch Cashfree SDK checkout
+      cashfreeService.startPayment(
+        paymentOrderId: sessionResult.paymentOrderId,
+        paymentSessionId: sessionResult.paymentSessionId!,
+      );
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -101,7 +177,7 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Failed to place order: ${e.toString()}'),
+          content: Text('Payment failed: ${e.toString()}'),
           backgroundColor: AppColors.error,
           duration: const Duration(seconds: 4),
         ),
@@ -272,7 +348,7 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
                               return;
                             }
 
-                            _placeOrder(
+                            _payAndPlaceOrder(
                               defaultAddress: defaultAddress,
                               shopName: shopName,
                               shopId: shopId ?? '',
@@ -298,7 +374,7 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
                             ),
                           )
                         : const Text(
-                            'Place Order',
+                            'Pay & Place Order',
                             style: TextStyle(
                               fontSize: 16,
                               fontWeight: FontWeight.bold,

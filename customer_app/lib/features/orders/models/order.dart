@@ -4,6 +4,7 @@ import 'order_delivery.dart';
 import 'order_item.dart';
 import 'order_pricing.dart';
 import 'order_status.dart';
+import 'payment_status.dart';
 
 /// Represents a customer order entity in Allz Bharat.
 class Order {
@@ -15,6 +16,11 @@ class Order {
   final OrderDelivery delivery;
   final OrderPricing pricing;
   final String status;
+  final String paymentStatus;
+  final String? paymentOrderId;
+  final String? paymentId;
+  final String? paymentMethod;
+  final DateTime? paidAt;
   final DateTime? createdAt;
   final DateTime? cancelledAt;
   final String? cancellationReason;
@@ -28,13 +34,21 @@ class Order {
     required this.delivery,
     required this.pricing,
     this.status = 'pending',
+    this.paymentStatus = 'pending',
+    this.paymentOrderId,
+    this.paymentId,
+    this.paymentMethod,
+    this.paidAt,
     this.createdAt,
     this.cancelledAt,
     this.cancellationReason,
   });
 
-  /// Helper getter to convert status string to OrderStatus enum.
+  /// Helper getter to convert fulfillment status string to [OrderStatus] enum.
   OrderStatus get orderStatus => OrderStatus.fromString(status);
+
+  /// Helper getter to convert payment status string to [PaymentStatus] enum.
+  PaymentStatus get paymentStatusEnum => PaymentStatus.fromString(paymentStatus);
 
   factory Order.fromFirestore(
     DocumentSnapshot<Map<String, dynamic>> doc,
@@ -75,6 +89,20 @@ class Order {
       }
     }
 
+    DateTime? parsedPaidAt;
+    final rawPaidAt = map['paidAt'];
+    if (rawPaidAt is Timestamp) {
+      parsedPaidAt = rawPaidAt.toDate();
+    } else if (rawPaidAt is String) {
+      parsedPaidAt = DateTime.tryParse(rawPaidAt);
+    } else if (rawPaidAt != null) {
+      try {
+        parsedPaidAt = (rawPaidAt as dynamic).toDate() as DateTime?;
+      } catch (_) {
+        parsedPaidAt = null;
+      }
+    }
+
     final rawItems = map['items'];
     final items = <OrderItem>[];
     if (rawItems is List) {
@@ -104,6 +132,11 @@ class Order {
       delivery: OrderDelivery.fromMap(deliveryMap),
       pricing: OrderPricing.fromMap(pricingMap),
       status: (map['status'] ?? 'pending') as String,
+      paymentStatus: (map['paymentStatus'] ?? 'pending') as String,
+      paymentOrderId: map['paymentOrderId'] as String?,
+      paymentId: map['paymentId'] as String?,
+      paymentMethod: map['paymentMethod'] as String?,
+      paidAt: parsedPaidAt,
       createdAt: parsedCreatedAt,
       cancelledAt: parsedCancelledAt,
       cancellationReason: map['cancellationReason'] as String?,
@@ -119,6 +152,11 @@ class Order {
       'delivery': delivery.toMap(),
       'pricing': pricing.toMap(),
       'status': status,
+      'paymentStatus': paymentStatus,
+      if (paymentOrderId != null) 'paymentOrderId': paymentOrderId,
+      if (paymentId != null) 'paymentId': paymentId,
+      if (paymentMethod != null) 'paymentMethod': paymentMethod,
+      if (paidAt != null) 'paidAt': Timestamp.fromDate(paidAt!),
       if (createdAt != null)
         'createdAt': Timestamp.fromDate(createdAt!)
       else
@@ -139,6 +177,11 @@ class Order {
     OrderDelivery? delivery,
     OrderPricing? pricing,
     String? status,
+    String? paymentStatus,
+    String? paymentOrderId,
+    String? paymentId,
+    String? paymentMethod,
+    DateTime? paidAt,
     DateTime? createdAt,
     DateTime? cancelledAt,
     String? cancellationReason,
@@ -152,6 +195,11 @@ class Order {
       delivery: delivery ?? this.delivery,
       pricing: pricing ?? this.pricing,
       status: status ?? this.status,
+      paymentStatus: paymentStatus ?? this.paymentStatus,
+      paymentOrderId: paymentOrderId ?? this.paymentOrderId,
+      paymentId: paymentId ?? this.paymentId,
+      paymentMethod: paymentMethod ?? this.paymentMethod,
+      paidAt: paidAt ?? this.paidAt,
       createdAt: createdAt ?? this.createdAt,
       cancelledAt: cancelledAt ?? this.cancelledAt,
       cancellationReason: cancellationReason ?? this.cancellationReason,
@@ -167,6 +215,11 @@ class Order {
         other.shopId == shopId &&
         other.shopName == shopName &&
         other.status == status &&
+        other.paymentStatus == paymentStatus &&
+        other.paymentOrderId == paymentOrderId &&
+        other.paymentId == paymentId &&
+        other.paymentMethod == paymentMethod &&
+        other.paidAt == paidAt &&
         other.delivery == delivery &&
         other.pricing == pricing &&
         other.cancelledAt == cancelledAt &&
@@ -180,6 +233,11 @@ class Order {
       shopId.hashCode ^
       shopName.hashCode ^
       status.hashCode ^
+      paymentStatus.hashCode ^
+      paymentOrderId.hashCode ^
+      paymentId.hashCode ^
+      paymentMethod.hashCode ^
+      paidAt.hashCode ^
       delivery.hashCode ^
       pricing.hashCode ^
       cancelledAt.hashCode ^
@@ -187,5 +245,5 @@ class Order {
 
   @override
   String toString() =>
-      'Order(id: $orderId, customerId: $customerId, shop: $shopName, status: $status, total: ${pricing.total})';
+      'Order(id: $orderId, customerId: $customerId, shop: $shopName, status: $status, paymentStatus: $paymentStatus, total: ${pricing.total})';
 }

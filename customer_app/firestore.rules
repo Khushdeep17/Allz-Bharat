@@ -36,12 +36,23 @@ service cloud.firestore {
       allow write: if false;
     }
 
-    // 6. Orders Collection
-    // Top-level collection. Customers can create and read only their own orders.
+    // 6. Payment Intents Collection
+    // Created and managed by trusted Cloud Functions backend.
+    // Customers can read only their own payment intent documents; no customer direct writes.
+    match /payment_intents/{intentId} {
+      allow read: if request.auth != null && resource.data.customerId == request.auth.uid;
+      allow write: if false;
+    }
+
+    // 7. Orders Collection
+    // Top-level collection. Final orders are created exclusively by trusted Cloud Functions Admin SDK.
+    // Direct client order creation is disabled.
+    // Customers can read only their own orders.
     // Customers can cancel (update) an order only while it is pending.
+    // Customers can NEVER update paymentStatus, paymentId, paymentOrderId, pricing, or other fields.
     match /orders/{orderId} {
       allow read: if request.auth != null && resource.data.customerId == request.auth.uid;
-      allow create: if request.auth != null && request.resource.data.customerId == request.auth.uid;
+      allow create: if false;
       allow update: if request.auth != null
         && resource.data.customerId == request.auth.uid
         && resource.data.status == "pending"

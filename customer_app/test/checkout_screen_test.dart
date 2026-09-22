@@ -1,16 +1,19 @@
-import 'package:customer_app/core/routing/app_router.dart';
-import 'package:customer_app/core/routing/app_routes.dart';
 import 'package:customer_app/features/addresses/data/address_repository.dart';
 import 'package:customer_app/features/addresses/models/address.dart';
 import 'package:customer_app/features/auth/data/auth_repository.dart';
 import 'package:customer_app/features/auth/data/user_repository.dart';
 import 'package:customer_app/features/auth/models/app_user.dart';
+import 'package:customer_app/features/cart/models/cart_item.dart';
 import 'package:customer_app/features/cart/presentation/controllers/cart_controller.dart';
+import 'package:customer_app/features/orders/data/cashfree_service.dart';
 import 'package:customer_app/features/orders/data/order_repository.dart';
+import 'package:customer_app/features/orders/data/payment_repository.dart';
 import 'package:customer_app/features/orders/models/order.dart';
 import 'package:customer_app/features/orders/models/order_delivery.dart';
 import 'package:customer_app/features/orders/models/order_item.dart';
 import 'package:customer_app/features/orders/models/order_pricing.dart';
+import 'package:customer_app/features/orders/models/payment_session_result.dart';
+import 'package:customer_app/features/orders/models/payment_status.dart';
 import 'package:customer_app/features/orders/presentation/screens/checkout_screen.dart';
 import 'package:customer_app/features/orders/presentation/screens/order_details_screen.dart';
 import 'package:customer_app/features/products/models/product.dart';
@@ -18,8 +21,10 @@ import 'package:customer_app/features/shops/data/shop_repository.dart';
 import 'package:customer_app/features/shops/models/shop.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_cashfree_pg_sdk/utils/cfenums.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
 
 import 'address_repository_test.dart';
 import 'order_repository_test.dart';
@@ -28,7 +33,17 @@ class FakeUser extends Fake implements User {
   @override
   final String uid;
 
-  FakeUser({this.uid = 'test-uid'});
+  @override
+  final String? displayName;
+
+  @override
+  final String? email;
+
+  FakeUser({
+    this.uid = 'user_123',
+    this.displayName = 'Khushdeep Singh',
+    this.email = 'test@allzbharat.com',
+  });
 }
 
 class FakeAuthRepository implements AuthRepository {
@@ -124,6 +139,110 @@ class FakeShopRepository implements ShopRepository {
   Stream<Shop?> watchShopById(String id) => Stream.value(_shops[id]);
 }
 
+class FakePaymentRepository implements PaymentRepository {
+  PaymentSessionResult? mockSessionResult;
+  PaymentVerificationResult? mockVerificationResult;
+  bool shouldThrowOnCreate = false;
+  bool shouldThrowOnVerify = false;
+  int createSessionCallCount = 0;
+  int verifyPaymentCallCount = 0;
+
+  @override
+  Future<PaymentSessionResult> createPaymentSession({
+    required String shopId,
+    required List<CartItem> items,
+    required Address deliveryAddress,
+    String? customerName,
+    String? customerPhone,
+    String? customerEmail,
+  }) async {
+    createSessionCallCount++;
+    if (shouldThrowOnCreate) {
+      throw Exception('Payment gateway unavailable');
+    }
+    if (mockSessionResult != null) return mockSessionResult!;
+    return PaymentSessionResult(
+      success: true,
+      orderId: 'mock_order_123',
+      paymentOrderId: 'order_mock_123_456',
+      paymentSessionId: 'session_mock_789',
+      amount: 74.0,
+      currency: 'INR',
+      pricing: const OrderPricing(
+        subtotal: 54.0,
+        deliveryFee: 15.0,
+        platformFee: 5.0,
+        total: 74.0,
+      ),
+      message: 'Session created successfully',
+    );
+  }
+
+  @override
+  Future<PaymentVerificationResult> verifyPayment({
+    required String orderId,
+    String? paymentOrderId,
+  }) async {
+    verifyPaymentCallCount++;
+    if (shouldThrowOnVerify) {
+      throw Exception('Network error during verification');
+    }
+    if (mockVerificationResult != null) return mockVerificationResult!;
+    return PaymentVerificationResult(
+      success: true,
+      orderId: orderId,
+      paymentStatus: PaymentStatus.paid,
+      paymentId: 'cf_pay_999',
+      paymentMethod: 'upi',
+      paidAt: DateTime(2026, 9, 18, 18, 0, 0),
+      message: 'Payment verified',
+    );
+  }
+}
+
+class FakeCashfreePaymentService implements CashfreePaymentService {
+  Function(String orderId)? onVerifyCallback;
+  Function(dynamic errorResponse, String orderId)? onErrorCallback;
+  int startPaymentCallCount = 0;
+  String? lastPaymentOrderId;
+  String? lastPaymentSessionId;
+
+  bool autoTriggerVerify = true;
+  bool autoTriggerError = false;
+  dynamic errorResponsePayload;
+
+  @override
+  CFEnvironment get environment => CFEnvironment.SANDBOX;
+
+  @override
+  void setCallbacks({
+    required Function(String orderId) onVerify,
+    required Function(dynamic errorResponse, String orderId) onError,
+  }) {
+    onVerifyCallback = onVerify;
+    onErrorCallback = onError;
+  }
+
+  @override
+  void startPayment({
+    required String paymentOrderId,
+    required String paymentSessionId,
+  }) {
+    startPaymentCallCount++;
+    lastPaymentOrderId = paymentOrderId;
+    lastPaymentSessionId = paymentSessionId;
+
+    if (autoTriggerVerify && onVerifyCallback != null) {
+      onVerifyCallback!(paymentOrderId);
+    } else if (autoTriggerError && onErrorCallback != null) {
+      onErrorCallback!(
+        errorResponsePayload ?? 'Payment cancelled by user',
+        paymentOrderId,
+      );
+    }
+  }
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -172,14 +291,50 @@ void main() {
     isDefault: true,
   );
 
+  GoRouter createTestRouter({
+    required Widget home,
+  }) {
+    return GoRouter(
+      initialLocation: '/checkout',
+      routes: [
+        GoRoute(
+          path: '/checkout',
+          builder: (context, state) => home,
+        ),
+        GoRoute(
+          path: '/orders/:orderId',
+          builder: (context, state) => OrderDetailsScreen(
+            orderId: state.pathParameters['orderId'] ?? '',
+          ),
+        ),
+        GoRoute(
+          path: '/addresses',
+          builder: (context, state) =>
+              const Scaffold(body: Text('Addresses Screen')),
+        ),
+        GoRoute(
+          path: '/home',
+          builder: (context, state) =>
+              const Scaffold(body: Text('Home Screen')),
+        ),
+        GoRoute(
+          path: '/cart',
+          builder: (context, state) =>
+              const Scaffold(body: Text('Cart Screen')),
+        ),
+      ],
+    );
+  }
+
   Widget createWidgetUnderTest({
     required Widget child,
     required List<Override> overrides,
   }) {
+    final router = createTestRouter(home: child);
     return ProviderScope(
       overrides: overrides,
-      child: MaterialApp(
-        home: child,
+      child: MaterialApp.router(
+        routerConfig: router,
       ),
     );
   }
@@ -211,7 +366,8 @@ void main() {
       final fakeAddressRepo = FakeAddressRepository({
         'user_123': [testAddress],
       });
-      final fakeOrderRepo = FakeOrderRepository();
+      final fakePaymentRepo = FakePaymentRepository();
+      final fakeCashfreeService = FakeCashfreePaymentService();
 
       final container = ProviderContainer(
         overrides: [
@@ -221,7 +377,9 @@ void main() {
               FakeUserRepository({'user_123': testAppUser})),
           shopRepositoryProvider.overrideWithValue(fakeShopRepo),
           addressRepositoryProvider.overrideWithValue(fakeAddressRepo),
-          orderRepositoryProvider.overrideWithValue(fakeOrderRepo),
+          paymentRepositoryProvider.overrideWithValue(fakePaymentRepo),
+          cashfreePaymentServiceProvider
+              .overrideWithValue(fakeCashfreeService),
         ],
       );
 
@@ -234,11 +392,13 @@ void main() {
           .addItem(testProduct2, 1); // 245 * 1 = 245
       // Subtotal = 299, Delivery = 15, Platform = 5, Total = 319
 
+      final router = createTestRouter(home: const CheckoutScreen());
+
       await tester.pumpWidget(
         UncontrolledProviderScope(
           container: container,
-          child: const MaterialApp(
-            home: CheckoutScreen(),
+          child: MaterialApp.router(
+            routerConfig: router,
           ),
         ),
       );
@@ -275,17 +435,19 @@ void main() {
       expect(find.text('Grand Total'), findsOneWidget);
       expect(find.text('₹319'), findsWidgets);
 
-      // Check Place Order button
-      expect(find.text('Place Order'), findsOneWidget);
+      // Check Pay & Place Order button
+      expect(find.text('Pay & Place Order'), findsOneWidget);
     });
 
     testWidgets(
-        'Cart Screen Proceed to Checkout prompts to add address if no default address',
+        'A. Checkout with no default address prompts to add address when Pay & Place Order is tapped',
         (tester) async {
       final fakeShopRepo = FakeShopRepository({'shop_001': testShop});
       final fakeAddressRepo = FakeAddressRepository({
         'user_123': [], // No address
       });
+      final fakePaymentRepo = FakePaymentRepository();
+      final fakeCashfreeService = FakeCashfreePaymentService();
 
       final container = ProviderContainer(
         overrides: [
@@ -295,11 +457,14 @@ void main() {
               FakeUserRepository({'user_123': testAppUser})),
           shopRepositoryProvider.overrideWithValue(fakeShopRepo),
           addressRepositoryProvider.overrideWithValue(fakeAddressRepo),
+          paymentRepositoryProvider.overrideWithValue(fakePaymentRepo),
+          cashfreePaymentServiceProvider
+              .overrideWithValue(fakeCashfreeService),
         ],
       );
 
       container.read(cartProvider.notifier).addItem(testProduct1, 1);
-      final router = container.read(routerProvider);
+      final router = createTestRouter(home: const CheckoutScreen());
 
       await tester.pumpWidget(
         UncontrolledProviderScope(
@@ -309,27 +474,64 @@ void main() {
           ),
         ),
       );
-
-      router.go(AppRoutes.cart);
       await tester.pumpAndSettle();
 
-      await tester.tap(find.text('Proceed to Checkout'));
-      await tester.pumpAndSettle();
+      await tester.tap(find.text('Pay & Place Order'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
 
       expect(
-        find.text('Please add a delivery address to proceed to checkout'),
+        find.text('Please add a delivery address to place your order.'),
         findsOneWidget,
       );
+
+      // Payment session must NOT be created
+      expect(fakePaymentRepo.createSessionCallCount, 0);
     });
 
     testWidgets(
-        'Placing order creates Firestore document with full snapshot and clears cart',
+        'H. Successful payment initialization, SDK completion and backend verification clears cart and navigates to order details',
         (tester) async {
       final fakeShopRepo = FakeShopRepository({'shop_001': testShop});
       final fakeAddressRepo = FakeAddressRepository({
         'user_123': [testAddress],
       });
+      final fakePaymentRepo = FakePaymentRepository();
+      final fakeCashfreeService = FakeCashfreePaymentService();
       final fakeOrderRepo = FakeOrderRepository();
+
+      // Pre-seed the order in fakeOrderRepo so OrderDetailsScreen displays it
+      await fakeOrderRepo.createOrder(
+        const Order(
+          orderId: 'mock_order_123',
+          customerId: 'user_123',
+          shopId: 'shop_001',
+          shopName: 'Sharma Kirana Store',
+          items: [
+            OrderItem(
+              productId: 'p1',
+              name: 'Amul Taaza Milk 500ml',
+              price: 27.0,
+              quantity: 2,
+              subtotal: 54.0,
+            ),
+          ],
+          delivery: OrderDelivery(
+            addressId: 'addr_001',
+            label: 'Home',
+            fullAddress: 'Flat 402, Green Avenue, Delhi Road, Meerut',
+            phoneNumber: '9876543210',
+          ),
+          pricing: OrderPricing(
+            subtotal: 54.0,
+            deliveryFee: 15.0,
+            platformFee: 5.0,
+            total: 74.0,
+          ),
+          status: 'pending',
+          paymentStatus: 'paid',
+        ),
+      );
 
       final container = ProviderContainer(
         overrides: [
@@ -340,16 +542,20 @@ void main() {
           shopRepositoryProvider.overrideWithValue(fakeShopRepo),
           addressRepositoryProvider.overrideWithValue(fakeAddressRepo),
           orderRepositoryProvider.overrideWithValue(fakeOrderRepo),
+          paymentRepositoryProvider.overrideWithValue(fakePaymentRepo),
+          cashfreePaymentServiceProvider
+              .overrideWithValue(fakeCashfreeService),
         ],
       );
 
       container.read(cartProvider.notifier).addItem(testProduct1, 2);
+      final router = createTestRouter(home: const CheckoutScreen());
 
       await tester.pumpWidget(
         UncontrolledProviderScope(
           container: container,
-          child: const MaterialApp(
-            home: CheckoutScreen(),
+          child: MaterialApp.router(
+            routerConfig: router,
           ),
         ),
       );
@@ -357,46 +563,35 @@ void main() {
 
       expect(container.read(cartProvider).items.length, 1);
 
-      // Tap Place Order
-      await tester.tap(find.text('Place Order'));
+      // Tap Pay & Place Order
+      await tester.tap(find.text('Pay & Place Order'));
       await tester.pumpAndSettle();
 
-      // Check order repository has stored the order
-      expect(fakeOrderRepo.store.length, 1);
-      final createdOrder = fakeOrderRepo.store.values.first;
+      // Check payment repository created session
+      expect(fakePaymentRepo.createSessionCallCount, 1);
+      // Check Cashfree SDK launched
+      expect(fakeCashfreeService.startPaymentCallCount, 1);
+      // Check verifyPayment called
+      expect(fakePaymentRepo.verifyPaymentCallCount, 1);
 
-      expect(createdOrder.customerId, 'user_123');
-      expect(createdOrder.shopId, 'shop_001');
-      expect(createdOrder.shopName, 'Sharma Kirana Store');
-      expect(createdOrder.status, 'pending');
-      expect(createdOrder.items.length, 1);
-      expect(createdOrder.items.first.productId, 'p1');
-      expect(createdOrder.items.first.name, 'Amul Taaza Milk 500ml');
-      expect(createdOrder.items.first.price, 27.0);
-      expect(createdOrder.items.first.quantity, 2);
-      expect(createdOrder.items.first.subtotal, 54.0);
-      expect(createdOrder.delivery.addressId, 'addr_001');
-      expect(createdOrder.delivery.label, 'Home');
-      expect(createdOrder.delivery.fullAddress,
-          'Flat 402, Green Avenue, Delhi Road, Meerut');
-      expect(createdOrder.pricing.subtotal, 54.0);
-      expect(createdOrder.pricing.deliveryFee, 15.0);
-      expect(createdOrder.pricing.platformFee, 5.0);
-      expect(createdOrder.pricing.total, 74.0);
-
-      // Cart MUST be cleared after successful order creation
+      // Cart MUST be cleared ONLY after verified paid status
       expect(container.read(cartProvider).items, isEmpty);
       expect(container.read(cartProvider).shopId, isNull);
+
+      // Verify navigation to Order Details Screen
+      expect(find.text('Order Placed Successfully!'), findsOneWidget);
+      expect(find.textContaining('Order #'), findsOneWidget);
     });
 
-    testWidgets('Cart remains intact when order creation fails in Firestore',
+    testWidgets('C. Cart remains intact when payment session creation fails',
         (tester) async {
       final fakeShopRepo = FakeShopRepository({'shop_001': testShop});
       final fakeAddressRepo = FakeAddressRepository({
         'user_123': [testAddress],
       });
-      final fakeOrderRepo = FakeOrderRepository();
-      fakeOrderRepo.shouldThrowOnCreate = true; // Simulate failure
+      final fakePaymentRepo = FakePaymentRepository();
+      fakePaymentRepo.shouldThrowOnCreate = true; // Simulate failure
+      final fakeCashfreeService = FakeCashfreePaymentService();
 
       final container = ProviderContainer(
         overrides: [
@@ -406,33 +601,267 @@ void main() {
               FakeUserRepository({'user_123': testAppUser})),
           shopRepositoryProvider.overrideWithValue(fakeShopRepo),
           addressRepositoryProvider.overrideWithValue(fakeAddressRepo),
-          orderRepositoryProvider.overrideWithValue(fakeOrderRepo),
+          paymentRepositoryProvider.overrideWithValue(fakePaymentRepo),
+          cashfreePaymentServiceProvider
+              .overrideWithValue(fakeCashfreeService),
         ],
       );
 
       container.read(cartProvider.notifier).addItem(testProduct1, 2);
+      final router = createTestRouter(home: const CheckoutScreen());
 
       await tester.pumpWidget(
         UncontrolledProviderScope(
           container: container,
-          child: const MaterialApp(
-            home: CheckoutScreen(),
+          child: MaterialApp.router(
+            routerConfig: router,
           ),
         ),
       );
       await tester.pumpAndSettle();
 
-      // Tap Place Order
-      await tester.tap(find.text('Place Order'));
-      await tester.pumpAndSettle();
+      // Tap Pay & Place Order
+      await tester.tap(find.text('Pay & Place Order'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
 
       // Verify failure SnackBar is shown
-      expect(find.textContaining('Failed to place order'), findsOneWidget);
+      expect(find.textContaining('Payment failed'), findsOneWidget);
+
+      // Cashfree SDK must not be launched
+      expect(fakeCashfreeService.startPaymentCallCount, 0);
 
       // Cart MUST remain intact with 1 item of quantity 2
       expect(container.read(cartProvider).items.length, 1);
       expect(container.read(cartProvider).items.first.quantity, 2);
       expect(container.read(cartProvider).shopId, 'shop_001');
+    });
+
+    testWidgets(
+        'D & E. Cart remains intact when Cashfree SDK triggers error/cancelled callback',
+        (tester) async {
+      final fakeShopRepo = FakeShopRepository({'shop_001': testShop});
+      final fakeAddressRepo = FakeAddressRepository({
+        'user_123': [testAddress],
+      });
+      final fakePaymentRepo = FakePaymentRepository();
+      final fakeCashfreeService = FakeCashfreePaymentService();
+      fakeCashfreeService.autoTriggerVerify = false;
+      fakeCashfreeService.autoTriggerError = true; // Trigger SDK cancellation
+
+      final container = ProviderContainer(
+        overrides: [
+          authRepositoryProvider
+              .overrideWithValue(FakeAuthRepository(testUser)),
+          userRepositoryProvider.overrideWithValue(
+              FakeUserRepository({'user_123': testAppUser})),
+          shopRepositoryProvider.overrideWithValue(fakeShopRepo),
+          addressRepositoryProvider.overrideWithValue(fakeAddressRepo),
+          paymentRepositoryProvider.overrideWithValue(fakePaymentRepo),
+          cashfreePaymentServiceProvider
+              .overrideWithValue(fakeCashfreeService),
+        ],
+      );
+
+      container.read(cartProvider.notifier).addItem(testProduct1, 2);
+      final router = createTestRouter(home: const CheckoutScreen());
+
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: MaterialApp.router(
+            routerConfig: router,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // Tap Pay & Place Order
+      await tester.tap(find.text('Pay & Place Order'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+
+      // Verify cancellation SnackBar is shown
+      expect(
+        find.textContaining('Payment was cancelled or failed'),
+        findsOneWidget,
+      );
+
+      // verifyPayment must not have been called
+      expect(fakePaymentRepo.verifyPaymentCallCount, 0);
+
+      // Cart MUST remain intact
+      expect(container.read(cartProvider).items.length, 1);
+      expect(container.read(cartProvider).items.first.quantity, 2);
+    });
+
+    testWidgets(
+        'F. Cart remains intact when SDK reports success but backend verification fails',
+        (tester) async {
+      final fakeShopRepo = FakeShopRepository({'shop_001': testShop});
+      final fakeAddressRepo = FakeAddressRepository({
+        'user_123': [testAddress],
+      });
+      final fakePaymentRepo = FakePaymentRepository();
+      fakePaymentRepo.mockVerificationResult = const PaymentVerificationResult(
+        success: false,
+        orderId: 'mock_order_123',
+        paymentStatus: PaymentStatus.failed,
+        message: 'Payment verification failed at gateway.',
+      );
+      final fakeCashfreeService = FakeCashfreePaymentService();
+
+      final container = ProviderContainer(
+        overrides: [
+          authRepositoryProvider
+              .overrideWithValue(FakeAuthRepository(testUser)),
+          userRepositoryProvider.overrideWithValue(
+              FakeUserRepository({'user_123': testAppUser})),
+          shopRepositoryProvider.overrideWithValue(fakeShopRepo),
+          addressRepositoryProvider.overrideWithValue(fakeAddressRepo),
+          paymentRepositoryProvider.overrideWithValue(fakePaymentRepo),
+          cashfreePaymentServiceProvider
+              .overrideWithValue(fakeCashfreeService),
+        ],
+      );
+
+      container.read(cartProvider.notifier).addItem(testProduct1, 2);
+      final router = createTestRouter(home: const CheckoutScreen());
+
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: MaterialApp.router(
+            routerConfig: router,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // Tap Pay & Place Order
+      await tester.tap(find.text('Pay & Place Order'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+
+      // Verify failure message
+      expect(
+        find.textContaining('Payment verification failed at gateway'),
+        findsOneWidget,
+      );
+
+      // Cart MUST NOT be cleared
+      expect(container.read(cartProvider).items.length, 1);
+    });
+
+    testWidgets(
+        'G. Cart remains intact when backend returns pending verification status',
+        (tester) async {
+      final fakeShopRepo = FakeShopRepository({'shop_001': testShop});
+      final fakeAddressRepo = FakeAddressRepository({
+        'user_123': [testAddress],
+      });
+      final fakePaymentRepo = FakePaymentRepository();
+      fakePaymentRepo.mockVerificationResult = const PaymentVerificationResult(
+        success: false,
+        orderId: 'mock_order_123',
+        paymentStatus: PaymentStatus.pending,
+        message: 'Payment is pending.',
+      );
+      final fakeCashfreeService = FakeCashfreePaymentService();
+
+      final container = ProviderContainer(
+        overrides: [
+          authRepositoryProvider
+              .overrideWithValue(FakeAuthRepository(testUser)),
+          userRepositoryProvider.overrideWithValue(
+              FakeUserRepository({'user_123': testAppUser})),
+          shopRepositoryProvider.overrideWithValue(fakeShopRepo),
+          addressRepositoryProvider.overrideWithValue(fakeAddressRepo),
+          paymentRepositoryProvider.overrideWithValue(fakePaymentRepo),
+          cashfreePaymentServiceProvider
+              .overrideWithValue(fakeCashfreeService),
+        ],
+      );
+
+      container.read(cartProvider.notifier).addItem(testProduct1, 2);
+      final router = createTestRouter(home: const CheckoutScreen());
+
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: MaterialApp.router(
+            routerConfig: router,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // Tap Pay & Place Order
+      await tester.tap(find.text('Pay & Place Order'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+
+      // Verify pending notification
+      expect(
+        find.textContaining('Payment verification is still in progress'),
+        findsOneWidget,
+      );
+
+      // Cart MUST NOT be cleared
+      expect(container.read(cartProvider).items.length, 1);
+    });
+
+    testWidgets('I. Duplicate tap while submitting does not trigger duplicate session creations',
+        (tester) async {
+      final fakeShopRepo = FakeShopRepository({'shop_001': testShop});
+      final fakeAddressRepo = FakeAddressRepository({
+        'user_123': [testAddress],
+      });
+      final fakePaymentRepo = FakePaymentRepository();
+      // Disable autoTrigger to keep in submitting state
+      final fakeCashfreeService = FakeCashfreePaymentService();
+      fakeCashfreeService.autoTriggerVerify = false;
+
+      final container = ProviderContainer(
+        overrides: [
+          authRepositoryProvider
+              .overrideWithValue(FakeAuthRepository(testUser)),
+          userRepositoryProvider.overrideWithValue(
+              FakeUserRepository({'user_123': testAppUser})),
+          shopRepositoryProvider.overrideWithValue(fakeShopRepo),
+          addressRepositoryProvider.overrideWithValue(fakeAddressRepo),
+          paymentRepositoryProvider.overrideWithValue(fakePaymentRepo),
+          cashfreePaymentServiceProvider
+              .overrideWithValue(fakeCashfreeService),
+        ],
+      );
+
+      container.read(cartProvider.notifier).addItem(testProduct1, 2);
+      final router = createTestRouter(home: const CheckoutScreen());
+
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: MaterialApp.router(
+            routerConfig: router,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // Tap Pay & Place Order once
+      await tester.tap(find.text('Pay & Place Order'));
+      await tester.pump();
+
+      // Button is now submitting (shows spinner)
+      expect(find.byType(CircularProgressIndicator), findsOneWidget);
+
+      // Attempt tapping the button area again while disabled
+      await tester.tap(find.byType(ElevatedButton), warnIfMissed: false);
+      await tester.pump();
+
+      // createPaymentSession was called exactly once
+      expect(fakePaymentRepo.createSessionCallCount, 1);
     });
 
     testWidgets('OrderDetailsScreen displays all order details correctly',
@@ -466,6 +895,7 @@ void main() {
             total: 74.0,
           ),
           status: 'pending',
+          paymentStatus: 'paid',
         ),
       );
 

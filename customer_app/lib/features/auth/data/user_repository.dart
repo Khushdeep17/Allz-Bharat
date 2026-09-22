@@ -31,8 +31,8 @@ final userRepositoryProvider = Provider<UserRepository>((ref) {
 
 /// Reactive stream provider for the currently authenticated user's Firestore profile.
 final currentUserProfileProvider = StreamProvider<AppUser?>((ref) {
-  final authState = ref.watch(authStateChangesProvider);
-  final user = authState.valueOrNull;
+  final user = ref.watch(authRepositoryProvider).currentUser ??
+      ref.watch(authStateChangesProvider).valueOrNull;
 
   if (user == null) {
     return Stream.value(null);
